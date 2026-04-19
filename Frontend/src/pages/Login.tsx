@@ -22,11 +22,11 @@ const Login = () => {
       return;
     }
     setLoading(role);
-    setTimeout(() => {
-      const ok = login(username, password, role);
+    setTimeout(async () => {
+      const ok = await login(username, password, role);
       setLoading(null);
       if (!ok) {
-        setError("Invalid credentials. Password must be at least 3 characters.");
+        setError("Invalid credentials or backend unavailable.");
         return;
       }
       toast.success(`Welcome, ${username}`, { description: `Logged in as ${role}` });

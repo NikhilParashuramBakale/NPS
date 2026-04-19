@@ -17,8 +17,12 @@ const AdminDashboard = () => {
     navigate("/");
   };
 
-  const handleRevoke = (id: string, name: string) => {
-    revokeAssignment(id);
+  const handleRevoke = async (id: string, name: string) => {
+    const ok = await revokeAssignment(id);
+    if (!ok) {
+      toast.error("Could not revoke access");
+      return;
+    }
     toast.error("Access revoked", { description: `${name}'s access was revoked` });
   };
 

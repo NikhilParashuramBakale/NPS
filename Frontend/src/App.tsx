@@ -12,7 +12,8 @@ import NotFound from "./pages/NotFound.tsx";
 const queryClient = new QueryClient();
 
 const Protected = ({ role, children }: { role: "admin" | "viewer"; children: JSX.Element }) => {
-  const { user } = useApp();
+  const { user, initialized } = useApp();
+  if (!initialized) return null;
   if (!user) return <Navigate to="/" replace />;
   if (user.role !== role) return <Navigate to={user.role === "admin" ? "/admin" : "/viewer"} replace />;
   return children;

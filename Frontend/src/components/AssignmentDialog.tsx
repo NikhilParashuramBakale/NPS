@@ -21,18 +21,22 @@ export const AssignmentDialog = () => {
     setDuration("10");
   };
 
-  const submit = () => {
+  const submit = async () => {
     if (!viewerId || cameraIds.length === 0) {
       toast.error("Select a viewer and at least one camera");
       return;
     }
     const viewer = VIEWERS.find((v) => v.id === Number(viewerId))!;
-    addAssignment({
+    const ok = await addAssignment({
       viewerId: viewer.id,
       viewerName: viewer.name,
       cameraIds,
-      expiresIn: Number(duration) * 60,
+      durationMinutes: Number(duration),
     });
+    if (!ok) {
+      toast.error("Could not create assignment");
+      return;
+    }
     toast.success("Assignment created", {
       description: `${viewer.name} • ${cameraIds.length} camera(s) • ${duration} min`,
     });

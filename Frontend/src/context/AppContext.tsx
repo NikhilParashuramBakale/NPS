@@ -1,4 +1,13 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from "react";
+import {
+  createAssignment as createAssignmentApi,
+  deleteAssignment,
+  fetchAssignments,
+  fetchCameras,
+  fetchMe,
+  loginRequest,
+  setAuthToken,
+} from "@/lib/api";
 
 export type Role = "admin" | "viewer";
 
@@ -30,30 +39,31 @@ export const VIEWERS = [
 
 interface AppCtx {
   user: User | null;
-  login: (username: string, password: string, role: Role) => boolean;
+  initialized: boolean;
+  login: (username: string, password: string, role: Role) => Promise<boolean>;
   logout: () => void;
   cameras: Camera[];
   assignments: Assignment[];
-  addAssignment: (a: Omit<Assignment, "id">) => void;
-  revokeAssignment: (id: string) => void;
+  addAssignment: (a: Omit<Assignment, "id" | "expiresIn"> & { durationMinutes: number }) => Promise<boolean>;
+  revokeAssignment: (id: string) => Promise<boolean>;
   myAssignments: Assignment[];
 }
 
 const Ctx = createContext<AppCtx | null>(null);
+const TOKEN_KEY = "securecam_token";
+
+const prettyViewerName = (name: string) => {
+  const fromSeed = VIEWERS.find((v) => v.username.toLowerCase() === name.toLowerCase());
+  return fromSeed?.name ?? name;
+};
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const [initialized, setInitialized] = useState(false);
   const [user, setUser] = useState<User | null>(null);
-  const [cameras] = useState<Camera[]>([
-    { id: 1, name: "Camera 1", status: "online" },
-    { id: 2, name: "Camera 2", status: "online" },
-    { id: 3, name: "Camera 3", status: "offline" },
-    { id: 4, name: "Camera 4", status: "online" },
-  ]);
-  const [assignments, setAssignments] = useState<Assignment[]>([
-    { id: "a1", viewerId: 2, viewerName: "Viewer A", cameraIds: [1], expiresIn: 480 },
-  ]);
+  const [cameras, setCameras] = useState<Camera[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
 
-  // Tick down every second
+  // Tick down every second so timers remain live without requiring a poll loop.
   useEffect(() => {
     const t = setInterval(() => {
       setAssignments((prev) =>
@@ -65,37 +75,103 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(t);
   }, []);
 
-  const login: AppCtx["login"] = (username, password, role) => {
-    if (!username || !password) return false;
-    if (password.length < 3) return false;
-    setUser({
-      id: role === "admin" ? 1 : VIEWERS.find((v) => v.username === username)?.id ?? 2,
-      username,
-      role,
-    });
-    return true;
+  const syncDashboardData = async () => {
+    const [cameraData, assignmentData] = await Promise.all([fetchCameras(), fetchAssignments()]);
+    setCameras(cameraData);
+    setAssignments(
+      assignmentData
+        .map((a) => ({
+          id: a.id,
+          viewerId: a.viewer_id,
+          viewerName: prettyViewerName(a.viewer_name),
+          cameraIds: a.camera_ids,
+          expiresIn: a.expires_in,
+        }))
+        .filter((a) => a.expiresIn > 0)
+    );
   };
 
-  const logout = () => setUser(null);
+  useEffect(() => {
+    const restoreSession = async () => {
+      const token = localStorage.getItem(TOKEN_KEY);
+      if (!token) {
+        setInitialized(true);
+        return;
+      }
 
-  const addAssignment: AppCtx["addAssignment"] = (a) =>
-    setAssignments((prev) => [...prev, { ...a, id: crypto.randomUUID() }]);
+      try {
+        setAuthToken(token);
+        const me = await fetchMe();
+        setUser(me);
+        await syncDashboardData();
+      } catch {
+        setAuthToken(null);
+        localStorage.removeItem(TOKEN_KEY);
+        setUser(null);
+      } finally {
+        setInitialized(true);
+      }
+    };
 
-  const revokeAssignment = (id: string) =>
-    setAssignments((prev) => prev.filter((a) => a.id !== id));
+    void restoreSession();
+  }, []);
 
-  const myAssignments =
+  const login: AppCtx["login"] = async (username, password, role) => {
+    if (!username || !password) return false;
+    try {
+      const { access_token, user: loggedInUser } = await loginRequest({ username, password, role });
+      localStorage.setItem(TOKEN_KEY, access_token);
+      setAuthToken(access_token);
+      setUser(loggedInUser);
+      await syncDashboardData();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const logout = () => {
+    localStorage.removeItem(TOKEN_KEY);
+    setAuthToken(null);
+    setUser(null);
+    setAssignments([]);
+    setCameras([]);
+  };
+
+  const addAssignment: AppCtx["addAssignment"] = async (a) => {
+    try {
+      await createAssignmentApi({
+        viewer_id: a.viewerId,
+        camera_ids: a.cameraIds,
+        duration_minutes: a.durationMinutes,
+      });
+      await syncDashboardData();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const revokeAssignment: AppCtx["revokeAssignment"] = async (id) => {
+    try {
+      await deleteAssignment(id);
+      await syncDashboardData();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const myAssignments = useMemo(() =>
     user?.role === "viewer"
-      ? assignments.filter(
-          (a) =>
-            a.viewerName.toLowerCase().replace(" ", "_") === user.username.toLowerCase() ||
-            a.viewerId === user.id
-        )
-      : [];
+      ? assignments.filter((a) => a.viewerId === user.id)
+      : [],
+    [assignments, user]
+  );
 
   return (
     <Ctx.Provider
-      value={{ user, login, logout, cameras, assignments, addAssignment, revokeAssignment, myAssignments }}
+      value={{ user, initialized, login, logout, cameras, assignments, addAssignment, revokeAssignment, myAssignments }}
     >
       {children}
     </Ctx.Provider>
