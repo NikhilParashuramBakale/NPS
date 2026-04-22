@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .auth import create_access_token, verify_password
+from .auth import create_access_token, hash_password, needs_password_rehash, verify_password
 from .audit import log_event, prune_expired_assignments, recent_events_for_user
 from .config import settings
 from .database import Base, SessionLocal, engine, get_db
@@ -66,6 +66,11 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse
             details={"requested_role": payload.role, "reason": "invalid_credentials"},
         )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    if needs_password_rehash(user.password_hash):
+        user.password_hash = hash_password(payload.password)
+        db.add(user)
+        db.commit()
 
     token = create_access_token(subject=str(user.id), role=user.role.value)
     log_event(

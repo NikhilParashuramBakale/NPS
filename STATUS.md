@@ -6,7 +6,7 @@ tags: []
 
 # NPS SecureCam - Project Status & Roadmap
 
-**Last Updated:** April 22, 2026  
+**Last Updated:** April 23, 2026  
 **Project Root:** G:/6thsemproject/NPS
 
 ---
@@ -14,6 +14,17 @@ tags: []
 ## 1. Completed Work (This Session)
 
 ### Backend
+- ✅ **Password Hashing Upgrade (Argon2id)**
+  - Replaced PBKDF2 primary hashing with Argon2id in `backend/app/auth.py`
+  - Kept PBKDF2 verification as a backward-compatibility path for existing hashes
+  - Added login-time hash migration (`needs_password_rehash`) to transparently rehash legacy users to Argon2id
+
+- ✅ **Backend Testing (Pytest)**
+  - Added API and auth tests under `backend/tests/` for login, role enforcement, assignments, and audit events
+  - Added `backend/pytest.ini` for stable test discovery/imports
+  - Added `pytest` and `httpx` dependencies to backend requirements
+  - Validation: `14 passed` on backend pytest suite
+
 - ✅ **Audit Event Logging System** (new `backend/app/audit.py`)
   - Added `SecurityEvent` model for persistent audit trail storage
   - Implemented `log_event()` for recording login success/failure, assignment create/revoke, and assignment expiry
@@ -70,7 +81,7 @@ Frontend (React + TypeScript)
 └── Security Bar → live audit feed (polls /api/v1/security/events every 10s)
 
 Backend (FastAPI + SQLAlchemy)
-├── Authentication: JWT-based, password hashed with PBKDF2
+├── Authentication: JWT-based, password hashed with Argon2id (legacy PBKDF2 auto-migrated on login)
 ├── Authorization: Role checks (admin-only routes)
 ├── Data: Users, Cameras, Assignments, SecurityEvents (audit trail)
 ├── API: 8 endpoints + 1 health check
@@ -85,16 +96,17 @@ Backend (FastAPI + SQLAlchemy)
 **Goal:** Make the system production-ready for demo  
 **Estimated effort:** 2-3 days
 
-- [ ] **Password Hashing Upgrade**
+- [x] **Password Hashing Upgrade**
   - Replace PBKDF2 with Argon2id for better resistance to GPU attacks
   - Add `argon2-cffi` to `backend/requirements.txt`
   - Update `backend/app/auth.py` hash/verify functions
+  - Added safe migration path for legacy PBKDF2 hashes at login
 
-- [ ] **Backend Testing**
+- [x] **Backend Testing**
   - Add pytest unit tests for auth endpoints (login success/failure, role validation)
   - Add integration tests for assignment flow (create → list → revoke)
   - Add tests for audit log generation
-  - Target: ~20 tests covering happy path and edge cases
+  - Current status: 14 tests passing; expand to ~20 in next iteration for additional edge cases
 
 - [ ] **CORS & HTTPS Readiness**
   - Verify CORS headers correctly set for frontend origins
