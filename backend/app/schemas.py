@@ -40,3 +40,12 @@ class AssignmentOut(BaseModel):
     camera_ids: list[int]
     expires_in: int
     expires_at: datetime
+
+
+class SecurityEventOut(BaseModel):
+    id: str
+    event_type: str
+    actor_username: str | None = None
+    target_username: str | None = None
+    details: dict = Field(default_factory=dict)
+    created_at: datetime

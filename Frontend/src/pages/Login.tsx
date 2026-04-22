@@ -22,16 +22,21 @@ const Login = () => {
       return;
     }
     setLoading(role);
-    setTimeout(async () => {
+    void (async () => {
+      try {
       const ok = await login(username, password, role);
-      setLoading(null);
-      if (!ok) {
+        setLoading(null);
+        if (!ok) {
+          setError("Invalid credentials or backend unavailable.");
+          return;
+        }
+        toast.success(`Welcome, ${username}`, { description: `Logged in as ${role}` });
+        navigate(role === "admin" ? "/admin" : "/viewer");
+      } catch {
+        setLoading(null);
         setError("Invalid credentials or backend unavailable.");
-        return;
       }
-      toast.success(`Welcome, ${username}`, { description: `Logged in as ${role}` });
-      navigate(role === "admin" ? "/admin" : "/viewer");
-    }, 700);
+    })();
   };
 
   return (

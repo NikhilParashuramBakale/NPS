@@ -35,6 +35,15 @@ export type ApiAssignment = {
   expires_at: string;
 };
 
+export type SecurityEvent = {
+  id: string;
+  event_type: string;
+  actor_username: string | null;
+  target_username: string | null;
+  details: Record<string, unknown>;
+  created_at: string;
+};
+
 type CreateAssignmentPayload = {
   viewer_id: number;
   camera_ids: number[];
@@ -87,3 +96,5 @@ export const deleteAssignment = (assignmentId: string) =>
   request<{ status: string; assignment_id: string }>(`/api/v1/assignments/${assignmentId}`, {
     method: "DELETE",
   });
+
+export const fetchSecurityEvents = () => request<SecurityEvent[]>("/api/v1/security/events");

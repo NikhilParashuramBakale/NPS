@@ -42,3 +42,14 @@ class Assignment(Base):
     viewer_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     camera_ids: Mapped[list[int]] = mapped_column(JSON)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), index=True)
+
+
+class SecurityEvent(Base):
+    __tablename__ = "security_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    event_type: Mapped[str] = mapped_column(String(64), index=True)
+    actor_username: Mapped[str | None] = mapped_column(String(100), index=True, nullable=True)
+    target_username: Mapped[str | None] = mapped_column(String(100), index=True, nullable=True)
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), index=True, default=datetime.utcnow)
