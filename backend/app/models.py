@@ -18,6 +18,12 @@ class CameraStatus(str, enum.Enum):
     offline = "offline"
 
 
+class CameraSourceType(str, enum.Enum):
+    unconfigured = "unconfigured"
+    ip_mjpeg = "ip_mjpeg"
+    admin_local = "admin_local"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -35,6 +41,8 @@ class Camera(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(120), unique=True)
     status: Mapped[CameraStatus] = mapped_column(Enum(CameraStatus), default=CameraStatus.online)
+    source_type: Mapped[CameraSourceType] = mapped_column(Enum(CameraSourceType), default=CameraSourceType.unconfigured)
+    source_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
 
 class Assignment(Base):

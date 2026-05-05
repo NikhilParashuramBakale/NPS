@@ -1,12 +1,14 @@
 import type { Role, User } from "@/context/AppContext";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
 let authToken: string | null = null;
 
 export const setAuthToken = (token: string | null) => {
   authToken = token;
 };
+
+export const getAuthToken = () => authToken;
 
 type LoginPayload = {
   username: string;
@@ -57,20 +59,12 @@ type PakeUpgradeResponse = {
   status: string;
 };
 
-type PakeUpgradePayload = {
-  username: string;
-  password: string;
-  role: Role;
-};
-
-type PakeUpgradeResponse = {
-  status: string;
-};
-
 export type ApiCamera = {
   id: number;
   name: string;
   status: "online" | "offline";
+  source_type: "unconfigured" | "ip_mjpeg" | "admin_local";
+  source_url: string | null;
 };
 
 export type ApiAssignment = {
@@ -107,6 +101,11 @@ type CreateUserPayload = {
   username: string;
   password: string;
   role: Role;
+};
+
+type UpdateCameraPayload = {
+  source_type: ApiCamera["source_type"];
+  source_url: string | null;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -179,6 +178,39 @@ export const createUser = (payload: CreateUserPayload) =>
     method: "POST",
     body: JSON.stringify(payload),
   });
+
+export const updateCameraSource = (cameraId: number, payload: UpdateCameraPayload) =>
+  request<ApiCamera>(`/api/v1/admin/cameras/${cameraId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+
+export const probeCameraSource = (cameraId: number) =>
+  request<{ ok: boolean; status_code: number; detail: string }>(`/api/v1/admin/cameras/${cameraId}/probe`);
+
+export const uploadCameraFrame = async (cameraId: number, blob: Blob) => {
+  if (!authToken) {
+    throw new Error("Missing auth token");
+  }
+
+  const form = new FormData();
+  form.append("file", blob, "frame.jpg");
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/admin/cameras/${cameraId}/frame`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: form,
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Request failed with ${response.status}`);
+  }
+
+  return response.json() as Promise<{ status: string }>;
+};
 
 export const deleteAssignment = (assignmentId: string) =>
   request<{ status: string; assignment_id: string }>(`/api/v1/assignments/${assignmentId}`, {

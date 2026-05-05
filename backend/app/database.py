@@ -36,3 +36,21 @@ def ensure_user_pake_columns() -> None:
         if "pake_verifier" not in columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN pake_verifier VARCHAR(512)"))
         conn.commit()
+
+
+def ensure_camera_source_columns() -> None:
+    if engine.dialect.name != "sqlite":
+        return
+
+    with engine.connect() as conn:
+        try:
+            rows = conn.execute(text("PRAGMA table_info(cameras)")).mappings().all()
+        except Exception:  # noqa: BLE001
+            return
+
+        columns = {row["name"] for row in rows}
+        if "source_type" not in columns:
+            conn.execute(text("ALTER TABLE cameras ADD COLUMN source_type VARCHAR(32)"))
+        if "source_url" not in columns:
+            conn.execute(text("ALTER TABLE cameras ADD COLUMN source_url VARCHAR(512)"))
+        conn.commit()

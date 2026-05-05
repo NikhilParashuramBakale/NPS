@@ -68,6 +68,13 @@ class CameraOut(BaseModel):
     id: int
     name: str
     status: str
+    source_type: str
+    source_url: str | None = None
+
+
+class CameraUpdate(BaseModel):
+    source_type: str
+    source_url: str | None = None
 
 
 class AssignmentCreate(BaseModel):

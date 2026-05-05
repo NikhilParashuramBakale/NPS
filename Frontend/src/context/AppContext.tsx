@@ -11,6 +11,7 @@ import {
   pakeStartRequest,
   pakeUpgradeRequest,
   setAuthToken,
+  updateCameraSource as updateCameraSourceApi,
 } from "@/lib/api";
 import { buildPakeClient } from "@/lib/pake";
 
@@ -26,6 +27,8 @@ export interface Camera {
   id: number;
   name: string;
   status: "online" | "offline";
+  source_type: "unconfigured" | "ip_mjpeg" | "admin_local";
+  source_url: string | null;
 }
 
 export interface Assignment {
@@ -47,6 +50,7 @@ interface AppCtx {
   addAssignment: (a: Omit<Assignment, "id" | "expiresIn"> & { durationMinutes: number }) => Promise<boolean>;
   revokeAssignment: (id: string) => Promise<boolean>;
   createUser: (payload: { username: string; password: string; role: Role }) => Promise<boolean>;
+  updateCameraSource: (cameraId: number, payload: { source_type: Camera["source_type"]; source_url: string | null }) => Promise<boolean>;
   myAssignments: Assignment[];
 }
 
@@ -228,6 +232,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const updateCameraSource: AppCtx["updateCameraSource"] = async (cameraId, payload) => {
+    try {
+      await updateCameraSourceApi(cameraId, payload);
+      await syncDashboardData(user?.role);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const myAssignments = useMemo(() =>
     user?.role === "viewer"
       ? assignments.filter((a) => a.viewerId === user.id)
@@ -248,6 +262,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         addAssignment,
         revokeAssignment,
         createUser,
+        updateCameraSource,
         myAssignments,
       }}
     >

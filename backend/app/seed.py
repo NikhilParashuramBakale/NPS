@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from .auth import hash_password
 from .pake_bridge import compute_verifier, generate_salt
-from .models import Camera, CameraStatus, User, UserRole
+from .models import Camera, CameraSourceType, CameraStatus, User, UserRole
 
 
 def seed_data(db: Session) -> None:
@@ -30,10 +30,10 @@ def seed_data(db: Session) -> None:
     ]
 
     cameras = [
-        Camera(name="Camera 1", status=CameraStatus.online),
-        Camera(name="Camera 2", status=CameraStatus.online),
-        Camera(name="Camera 3", status=CameraStatus.offline),
-        Camera(name="Camera 4", status=CameraStatus.online),
+        Camera(name="Camera 1", status=CameraStatus.online, source_type=CameraSourceType.unconfigured),
+        Camera(name="Camera 2", status=CameraStatus.online, source_type=CameraSourceType.unconfigured),
+        Camera(name="Camera 3", status=CameraStatus.offline, source_type=CameraSourceType.unconfigured),
+        Camera(name="Camera 4", status=CameraStatus.online, source_type=CameraSourceType.unconfigured),
     ]
 
     db.add_all(users + cameras)

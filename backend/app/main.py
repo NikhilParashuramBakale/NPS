@@ -1,8 +1,9 @@
 from datetime import UTC, datetime, timedelta
 import logging
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+import httpx
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -12,15 +13,16 @@ from starlette.responses import Response
 from .auth import create_access_token, hash_password, needs_password_rehash, verify_password
 from .audit import log_event, prune_expired_assignments, recent_events_for_user
 from .config import settings
-from .database import Base, SessionLocal, engine, ensure_user_pake_columns, get_db
+from .database import Base, SessionLocal, engine, ensure_camera_source_columns, ensure_user_pake_columns, get_db
 from .deps import get_current_user, require_admin
-from .models import Assignment, Camera, PakeSession, User, UserRole
+from .models import Assignment, Camera, CameraSourceType, PakeSession, User, UserRole
 from .pake_bridge import compute_verifier, finish_pake, generate_salt, pake_public_config, start_pake
 from .schemas import (
     AssignmentCreate,
     AssignmentOut,
     AdminUserCreate,
     CameraOut,
+    CameraUpdate,
     LoginRequest,
     LoginResponse,
     PakeFinishRequest,
@@ -36,6 +38,8 @@ from .seed import seed_data
 
 app = FastAPI(title="SecureCam Backend", version="0.1.0")
 logger = logging.getLogger("securecam.auth")
+
+CAMERA_FRAMES: dict[int, bytes] = {}
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -77,6 +81,7 @@ def startup() -> None:
     _validate_startup_settings()
     Base.metadata.create_all(bind=engine)
     ensure_user_pake_columns()
+    ensure_camera_source_columns()
     with SessionLocal() as db:
         seed_data(db)
         prune_expired_assignments(db)
@@ -252,9 +257,154 @@ def me(current_user: User = Depends(get_current_user)) -> UserOut:
 
 @app.get("/api/v1/cameras", response_model=list[CameraOut])
 def list_cameras(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[CameraOut]:
-    _ = current_user
-    cameras = db.scalars(select(Camera).order_by(Camera.id)).all()
-    return [CameraOut(id=c.id, name=c.name, status=c.status.value) for c in cameras]
+    prune_expired_assignments(db)
+    if current_user.role == UserRole.viewer:
+        now = datetime.now(UTC).replace(tzinfo=None)
+        assignments = db.scalars(
+            select(Assignment).where(Assignment.viewer_id == current_user.id, Assignment.expires_at > now)
+        ).all()
+        camera_ids = sorted({cid for a in assignments for cid in a.camera_ids})
+        if not camera_ids:
+            return []
+        cameras = db.scalars(select(Camera).where(Camera.id.in_(camera_ids)).order_by(Camera.id)).all()
+    else:
+        cameras = db.scalars(select(Camera).order_by(Camera.id)).all()
+
+    return [
+        CameraOut(
+            id=c.id,
+            name=c.name,
+            status=c.status.value,
+            source_type=c.source_type.value if c.source_type else CameraSourceType.unconfigured.value,
+            source_url=c.source_url,
+        )
+        for c in cameras
+    ]
+
+
+@app.get("/api/v1/cameras/{camera_id}/frame")
+def get_camera_frame(
+    camera_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    camera = db.get(Camera, camera_id)
+    if not camera:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
+
+    if current_user.role == UserRole.viewer:
+        now = datetime.now(UTC).replace(tzinfo=None)
+        assignments = db.scalars(
+            select(Assignment).where(
+                Assignment.viewer_id == current_user.id,
+                Assignment.expires_at > now,
+            )
+        ).all()
+        allowed_ids = {cid for a in assignments for cid in a.camera_ids}
+        if camera_id not in allowed_ids:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Camera not assigned")
+
+    frame = CAMERA_FRAMES.get(camera_id)
+    if not frame:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No frame available")
+
+    return Response(content=frame, media_type="image/jpeg")
+
+
+@app.post("/api/v1/admin/cameras/{camera_id}/frame")
+async def upload_camera_frame(
+    camera_id: int,
+    file: UploadFile = File(...),
+    admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    _ = admin_user
+    camera = db.get(Camera, camera_id)
+    if not camera:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
+
+    if camera.source_type != CameraSourceType.admin_local:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Camera is not configured for admin_local")
+
+    contents = await file.read()
+    if len(contents) > 2_000_000:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Frame too large")
+
+    CAMERA_FRAMES[camera_id] = contents
+    return {"status": "ok"}
+
+
+@app.put("/api/v1/admin/cameras/{camera_id}", response_model=CameraOut)
+def update_camera_source(
+    camera_id: int,
+    payload: CameraUpdate,
+    admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> CameraOut:
+    if payload.source_type not in {
+        CameraSourceType.unconfigured.value,
+        CameraSourceType.ip_mjpeg.value,
+        CameraSourceType.admin_local.value,
+    }:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid source_type")
+
+    camera = db.get(Camera, camera_id)
+    if not camera:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
+
+    if payload.source_type == CameraSourceType.ip_mjpeg.value and not payload.source_url:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="source_url required for ip_mjpeg")
+
+    if payload.source_type != CameraSourceType.ip_mjpeg.value:
+        payload.source_url = None
+
+    camera.source_type = CameraSourceType(payload.source_type)
+    camera.source_url = payload.source_url
+    db.add(camera)
+    db.commit()
+    db.refresh(camera)
+
+    log_event(
+        db,
+        "camera_source_updated",
+        actor_username=admin_user.username,
+        target_username=None,
+        details={"camera_id": camera.id, "source_type": camera.source_type.value},
+    )
+
+    return CameraOut(
+        id=camera.id,
+        name=camera.name,
+        status=camera.status.value,
+        source_type=camera.source_type.value,
+        source_url=camera.source_url,
+    )
+
+
+@app.get("/api/v1/admin/cameras/{camera_id}/probe")
+def probe_camera_source(
+    camera_id: int,
+    _admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, str | int | bool]:
+    camera = db.get(Camera, camera_id)
+    if not camera:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
+
+    if camera.source_type != CameraSourceType.ip_mjpeg or not camera.source_url:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Camera source is not ip_mjpeg")
+
+    try:
+        with httpx.Client(timeout=5.0, follow_redirects=True) as client:
+            response = client.get(camera.source_url)
+            content_type = response.headers.get("content-type", "")
+            if response.status_code >= 400:
+                return {"ok": False, "status_code": response.status_code, "detail": "HTTP error"}
+            if "multipart" not in content_type and "image" not in content_type:
+                return {"ok": False, "status_code": response.status_code, "detail": "Unexpected content-type"}
+            return {"ok": True, "status_code": response.status_code, "detail": "ok"}
+    except httpx.HTTPError as exc:
+        return {"ok": False, "status_code": 0, "detail": str(exc)}
 
 
 @app.get("/api/v1/admin/users", response_model=list[UserOut])
