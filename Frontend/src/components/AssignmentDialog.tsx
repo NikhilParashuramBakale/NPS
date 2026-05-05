@@ -5,11 +5,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus } from "lucide-react";
-import { useApp, VIEWERS } from "@/context/AppContext";
+import { useApp } from "@/context/AppContext";
 import { toast } from "sonner";
 
 export const AssignmentDialog = () => {
-  const { cameras, addAssignment } = useApp();
+  const { cameras, addAssignment, viewers } = useApp();
   const [open, setOpen] = useState(false);
   const [viewerId, setViewerId] = useState<string>("");
   const [cameraIds, setCameraIds] = useState<number[]>([]);
@@ -26,10 +26,14 @@ export const AssignmentDialog = () => {
       toast.error("Select a viewer and at least one camera");
       return;
     }
-    const viewer = VIEWERS.find((v) => v.id === Number(viewerId))!;
+    const viewer = viewers.find((v) => v.id === Number(viewerId));
+    if (!viewer) {
+      toast.error("Viewer not found. Refresh and try again.");
+      return;
+    }
     const ok = await addAssignment({
       viewerId: viewer.id,
-      viewerName: viewer.name,
+      viewerName: viewer.username,
       cameraIds,
       durationMinutes: Number(duration),
     });
@@ -38,7 +42,7 @@ export const AssignmentDialog = () => {
       return;
     }
     toast.success("Assignment created", {
-      description: `${viewer.name} • ${cameraIds.length} camera(s) • ${duration} min`,
+      description: `${viewer.username} • ${cameraIds.length} camera(s) • ${duration} min`,
     });
     setOpen(false);
     reset();
@@ -64,8 +68,8 @@ export const AssignmentDialog = () => {
             <Select value={viewerId} onValueChange={setViewerId}>
               <SelectTrigger><SelectValue placeholder="Select a viewer" /></SelectTrigger>
               <SelectContent>
-                {VIEWERS.map((v) => (
-                  <SelectItem key={v.id} value={String(v.id)}>{v.name} ({v.username})</SelectItem>
+                {viewers.map((v) => (
+                  <SelectItem key={v.id} value={String(v.id)}>{v.username}</SelectItem>
                 ))}
               </SelectContent>
             </Select>

@@ -6,7 +6,7 @@ tags: []
 
 # NPS SecureCam - Project Status & Roadmap
 
-**Last Updated:** April 23, 2026  
+**Last Updated:** May 5, 2026  
 **Project Root:** G:/6thsemproject/NPS
 
 ---
@@ -40,6 +40,17 @@ tags: []
 - ✅ **Database Schema Update**
   - Added `security_events` table with indexed fields: event_type, actor_username, target_username, created_at
 
+- ✅ **CORS + Security Headers + Env Separation**
+  - CORS restricted to `http://localhost:5173` via `CORS_ORIGINS`
+  - Added security headers middleware (X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy)
+  - Added startup validation for prod secrets + empty CORS
+  - Added `.env.dev` and `.env.prod` templates and `APP_ENV` support
+
+- ✅ **PAKE (SPAKE2) Auth + Admin User Registration**
+  - Added SPAKE2 start/finish endpoints with confirmation and TTL-based session cleanup
+  - Admin can create new users with PAKE verifier + Argon2 hash
+  - Added SQLite migration helper for new PAKE columns
+
 ### Frontend
 - ✅ **Live Security Bar**
   - `SecurityBar` component now fetches live events from `/api/v1/security/events` every 10 seconds
@@ -54,6 +65,10 @@ tags: []
 - ✅ **API Layer Update**
   - Added `SecurityEvent` type definition in `Frontend/src/lib/api.ts`
   - Added `fetchSecurityEvents()` function for audit endpoint consumption
+
+- ✅ **PAKE Client + Camera Source Viewer**
+  - Login now uses SPAKE2 handshake (client side) with confirmation
+  - Viewer dialog supports both laptop webcam and IP Webcam (MJPEG) sources
 
 ### Validation
 - ✅ Frontend production build passed
@@ -108,12 +123,12 @@ Backend (FastAPI + SQLAlchemy)
   - Add tests for audit log generation
   - Current status: 14 tests passing; expand to ~20 in next iteration for additional edge cases
 
-- [ ] **CORS & HTTPS Readiness**
+- [x] **CORS & HTTPS Readiness**
   - Verify CORS headers correctly set for frontend origins
   - Document HTTPS setup (self-signed cert or Let's Encrypt path for prod)
   - Add security headers (X-Frame-Options, X-Content-Type-Options, etc.)
 
-- [ ] **Environment Separation**
+- [x] **Environment Separation**
   - Create `.env.dev`, `.env.prod` templates
   - Add validation that critical secrets are set before startup
   - Document dev vs prod configuration differences
@@ -122,22 +137,19 @@ Backend (FastAPI + SQLAlchemy)
 **Goal:** Implement PAKE to replace plaintext password verification  
 **Estimated effort:** 5-7 days
 
-- [ ] **PAKE Protocol Integration**
-  - Choose library: `spake2` (SPAKE2) or `srp` (SRP-6a)
-  - Refactor `POST /api/v1/auth/login` into multi-step handshake:
-    - Step 1: Client sends username → Server returns challenge (PAKE identifier)
-    - Step 2: Client sends PAKE response → Server verifies, returns JWT on success
-  - Never send plaintext password over wire
-  - Update frontend `login()` flow to handle handshake
+- [x] **PAKE Protocol Integration**
+  - Library: `spake2` (SPAKE2)
+  - Added two-step handshake (`/auth/pake/start` + `/auth/pake/finish`) with key confirmation
+  - Updated frontend login flow to complete the handshake
 
 - [ ] **Session Key Derivation**
   - Use PAKE-derived shared secret to derive encryption key for session
   - Store session metadata (client_id, key_hash, created_at, last_activity) in new `sessions` table
   - Implement session validation on every protected endpoint
 
-- [ ] **Replay Attack Prevention**
-  - Add nonce/timestamp validation to PAKE messages
-  - Prevent reuse of old handshake responses
+- [~] **Replay Attack Prevention**
+  - Added one-time SPAKE2 session IDs with TTL + confirmation check
+  - Still need nonce/timestamp validation for stronger replay protection
 
 ### Phase 3: Encrypted Media & Signaling (Later)
 **Goal:** Add WebRTC signaling + end-to-end encrypted video streams  
@@ -159,8 +171,9 @@ Backend (FastAPI + SQLAlchemy)
   - Display encrypted stream indicator in UI
 
 - [ ] **Camera Feed Mock**
-  - Create test video source (synthetic stream or test file)
-  - Encode and transmit via WebRTC
+  - Provide camera sources:
+    - Browser `getUserMedia` (laptop webcam)
+    - Phone camera as IP cam (MJPEG HTTP) for demo input
   - Display playback in viewer dashboard with "Lock" badge when encrypted
 
 ### Phase 4: Demo & Presentation Assets (Final)

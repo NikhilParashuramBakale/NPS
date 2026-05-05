@@ -1,6 +1,9 @@
 {
   "dependencies": {
     "@supabase/ssr": "^0.10.2",
-    "@supabase/supabase-js": "^2.103.3"
+    "@supabase/supabase-js": "^2.103.3",
+    "browserslist": "^4.28.2",
+    "caniuse-lite": "^1.0.30001791",
+    "spake2": "^1.0.2"
   }
 }

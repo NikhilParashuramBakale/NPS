@@ -1,17 +1,19 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { LogOut, Shield, Lock, Eye, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useApp, formatTime } from "@/context/AppContext";
 import { SecurityBar } from "@/components/SecurityBar";
 import { CameraTile } from "@/components/CameraTile";
+import { ViewerCameraDialog } from "@/components/ViewerCameraDialog";
 import { toast } from "sonner";
 
 const ViewerDashboard = () => {
   const { user, logout, cameras, myAssignments } = useApp();
   const navigate = useNavigate();
-  const notifiedRef = useRef<Set<string>>(new Set());
   const prevCount = useRef(myAssignments.length);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
 
   useEffect(() => {
     if (prevCount.current > 0 && myAssignments.length < prevCount.current) {
@@ -36,6 +38,8 @@ const ViewerDashboard = () => {
   );
 
   const handleView = (name: string) => {
+    setSelectedCamera(name);
+    setDialogOpen(true);
     toast.success(`Viewing ${name}`, { description: "Encrypted stream opened" });
   };
 
@@ -103,6 +107,14 @@ const ViewerDashboard = () => {
           </div>
         )}
       </main>
+      <ViewerCameraDialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) setSelectedCamera(null);
+        }}
+        cameraName={selectedCamera}
+      />
     </div>
   );
 };

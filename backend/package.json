@@ -1,0 +1,15 @@
+{
+  "name": "nps-backend-pake",
+  "version": "1.0.0",
+  "description": "PAKE authentication bridge for NPS backend",
+  "main": "pake_cli.cjs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["pake", "authentication"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "spake2": "^1.0.0"
+  }
+}

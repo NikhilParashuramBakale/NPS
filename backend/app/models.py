@@ -24,6 +24,8 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     username: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
+    pake_salt: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    pake_verifier: Mapped[str | None] = mapped_column(String(512), nullable=True)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), index=True)
 
 
@@ -53,3 +55,13 @@ class SecurityEvent(Base):
     target_username: Mapped[str | None] = mapped_column(String(100), index=True, nullable=True)
     details: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), index=True, default=datetime.utcnow)
+
+
+class PakeSession(Base):
+    __tablename__ = "pake_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    server_state: Mapped[str] = mapped_column(String(4096))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), index=True, default=datetime.utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), index=True)

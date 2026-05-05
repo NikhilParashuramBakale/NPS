@@ -1,0 +1,15 @@
+{
+  "models": [
+    {
+      "title": "DeepSeek",
+      "provider": "ollama",
+      "model": "deepseek-coder"
+    }
+  ],
+  "contextProviders": [
+    "code",
+    "docs",
+    "diff",
+    "terminal"
+  ]
+}

@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .auth import hash_password
+from .pake_bridge import compute_verifier, generate_salt
 from .models import Camera, CameraStatus, User, UserRole
 
 
@@ -10,11 +11,22 @@ def seed_data(db: Session) -> None:
     if has_user:
         return
 
+    def build_user(username: str, password: str, role: UserRole) -> User:
+        salt = generate_salt()
+        verifier = compute_verifier(password, salt, username)
+        return User(
+            username=username,
+            password_hash=hash_password(password),
+            role=role,
+            pake_salt=salt,
+            pake_verifier=verifier,
+        )
+
     users = [
-        User(username="admin_user", password_hash=hash_password("admin123"), role=UserRole.admin),
-        User(username="viewer_a", password_hash=hash_password("viewer123"), role=UserRole.viewer),
-        User(username="viewer_b", password_hash=hash_password("viewer123"), role=UserRole.viewer),
-        User(username="viewer_c", password_hash=hash_password("viewer123"), role=UserRole.viewer),
+        build_user("admin_user", "admin123", UserRole.admin),
+        build_user("viewer_a", "viewer123", UserRole.viewer),
+        build_user("viewer_b", "viewer123", UserRole.viewer),
+        build_user("viewer_c", "viewer123", UserRole.viewer),
     ]
 
     cameras = [

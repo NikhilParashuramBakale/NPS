@@ -1,13 +1,18 @@
 import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from "react";
 import {
   createAssignment as createAssignmentApi,
+  createUser as createUserApi,
   deleteAssignment,
   fetchAssignments,
   fetchCameras,
   fetchMe,
-  loginRequest,
+  fetchUsers,
+  pakeFinishRequest,
+  pakeStartRequest,
+  pakeUpgradeRequest,
   setAuthToken,
 } from "@/lib/api";
+import { buildPakeClient } from "@/lib/pake";
 
 export type Role = "admin" | "viewer";
 
@@ -31,12 +36,6 @@ export interface Assignment {
   expiresIn: number; // seconds
 }
 
-export const VIEWERS = [
-  { id: 2, username: "viewer_a", name: "Viewer A" },
-  { id: 3, username: "viewer_b", name: "Viewer B" },
-  { id: 4, username: "viewer_c", name: "Viewer C" },
-];
-
 interface AppCtx {
   user: User | null;
   initialized: boolean;
@@ -44,17 +43,19 @@ interface AppCtx {
   logout: () => void;
   cameras: Camera[];
   assignments: Assignment[];
+  viewers: User[];
   addAssignment: (a: Omit<Assignment, "id" | "expiresIn"> & { durationMinutes: number }) => Promise<boolean>;
   revokeAssignment: (id: string) => Promise<boolean>;
+  createUser: (payload: { username: string; password: string; role: Role }) => Promise<boolean>;
   myAssignments: Assignment[];
 }
 
 const Ctx = createContext<AppCtx | null>(null);
 const TOKEN_KEY = "securecam_token";
 
-const prettyViewerName = (name: string) => {
-  const fromSeed = VIEWERS.find((v) => v.username.toLowerCase() === name.toLowerCase());
-  return fromSeed?.name ?? name;
+const prettyViewerName = (name: string, viewers: User[]) => {
+  const fromList = viewers.find((v) => v.username.toLowerCase() === name.toLowerCase());
+  return fromList?.username ?? name;
 };
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -62,6 +63,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [viewers, setViewers] = useState<User[]>([]);
 
   // Tick down every second so timers remain live without requiring a poll loop.
   useEffect(() => {
@@ -75,15 +77,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(t);
   }, []);
 
-  const syncDashboardData = async () => {
+  const syncDashboardData = async (role?: Role) => {
     const [cameraData, assignmentData] = await Promise.all([fetchCameras(), fetchAssignments()]);
     setCameras(cameraData);
+    const viewerData = role === "admin" ? await fetchUsers("viewer") : [];
+    setViewers(viewerData);
     setAssignments(
       assignmentData
         .map((a) => ({
           id: a.id,
           viewerId: a.viewer_id,
-          viewerName: prettyViewerName(a.viewer_name),
+          viewerName: prettyViewerName(a.viewer_name, viewerData),
           cameraIds: a.camera_ids,
           expiresIn: a.expires_in,
         }))
@@ -103,11 +107,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setAuthToken(token);
         const me = await fetchMe();
         setUser(me);
-        await syncDashboardData();
+        await syncDashboardData(me.role);
       } catch {
         setAuthToken(null);
         localStorage.removeItem(TOKEN_KEY);
         setUser(null);
+        setViewers([]);
       } finally {
         setInitialized(true);
       }
@@ -119,13 +124,63 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const login: AppCtx["login"] = async (username, password, role) => {
     if (!username || !password) return false;
     try {
-      const { access_token, user: loggedInUser } = await loginRequest({ username, password, role });
+      const start = await pakeStartRequest({ username, role });
+      const { clientMsg, confirmA, verify } = await buildPakeClient(
+        {
+          username,
+          server_id: start.server_id,
+          salt: start.salt,
+          server_msg: start.server_msg,
+          mhf: start.mhf,
+          kdf_aad: start.kdf_aad,
+        },
+        password
+      );
+      const finish = await pakeFinishRequest({
+        session_id: start.session_id,
+        client_msg: clientMsg,
+        confirm_a: confirmA,
+      });
+      verify(finish.confirm_b);
+      const { access_token, user: loggedInUser } = finish;
       localStorage.setItem(TOKEN_KEY, access_token);
       setAuthToken(access_token);
       setUser(loggedInUser);
-      await syncDashboardData();
+      await syncDashboardData(loggedInUser.role);
       return true;
-    } catch {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      if (message.includes("PAKE verifier missing")) {
+        try {
+          await pakeUpgradeRequest({ username, password, role });
+          const retryStart = await pakeStartRequest({ username, role });
+          const { clientMsg, confirmA, verify } = await buildPakeClient(
+            {
+              username,
+              server_id: retryStart.server_id,
+              salt: retryStart.salt,
+              server_msg: retryStart.server_msg,
+              mhf: retryStart.mhf,
+              kdf_aad: retryStart.kdf_aad,
+            },
+            password
+          );
+          const finish = await pakeFinishRequest({
+            session_id: retryStart.session_id,
+            client_msg: clientMsg,
+            confirm_a: confirmA,
+          });
+          verify(finish.confirm_b);
+          const { access_token, user: loggedInUser } = finish;
+          localStorage.setItem(TOKEN_KEY, access_token);
+          setAuthToken(access_token);
+          setUser(loggedInUser);
+          await syncDashboardData(loggedInUser.role);
+          return true;
+        } catch {
+          return false;
+        }
+      }
       return false;
     }
   };
@@ -136,6 +191,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setAssignments([]);
     setCameras([]);
+    setViewers([]);
   };
 
   const addAssignment: AppCtx["addAssignment"] = async (a) => {
@@ -145,7 +201,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         camera_ids: a.cameraIds,
         duration_minutes: a.durationMinutes,
       });
-      await syncDashboardData();
+      await syncDashboardData(user?.role);
       return true;
     } catch {
       return false;
@@ -155,7 +211,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const revokeAssignment: AppCtx["revokeAssignment"] = async (id) => {
     try {
       await deleteAssignment(id);
-      await syncDashboardData();
+      await syncDashboardData(user?.role);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const createUser: AppCtx["createUser"] = async (payload) => {
+    try {
+      await createUserApi(payload);
+      await syncDashboardData(user?.role);
       return true;
     } catch {
       return false;
@@ -171,7 +237,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider
-      value={{ user, initialized, login, logout, cameras, assignments, addAssignment, revokeAssignment, myAssignments }}
+      value={{
+        user,
+        initialized,
+        login,
+        logout,
+        cameras,
+        assignments,
+        viewers,
+        addAssignment,
+        revokeAssignment,
+        createUser,
+        myAssignments,
+      }}
     >
       {children}
     </Ctx.Provider>

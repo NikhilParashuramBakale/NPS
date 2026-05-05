@@ -5,6 +5,7 @@ import { useApp, formatTime } from "@/context/AppContext";
 import { SecurityBar } from "@/components/SecurityBar";
 import { CameraTile } from "@/components/CameraTile";
 import { AssignmentDialog } from "@/components/AssignmentDialog";
+import { UserDialog } from "@/components/UserDialog";
 import { toast } from "sonner";
 
 const AdminDashboard = () => {
@@ -125,6 +126,9 @@ const AdminDashboard = () => {
           </div>
           <div className="mt-3">
             <AssignmentDialog />
+          </div>
+          <div className="mt-2">
+            <UserDialog />
           </div>
         </aside>
       </div>
