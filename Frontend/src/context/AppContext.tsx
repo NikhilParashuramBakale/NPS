@@ -39,10 +39,15 @@ export interface Assignment {
   expiresIn: number; // seconds
 }
 
+export type PakeStepData = {
+  step: number;
+  data?: Record<string, string>;
+};
+
 interface AppCtx {
   user: User | null;
   initialized: boolean;
-  login: (username: string, password: string, role: Role) => Promise<boolean>;
+  login: (username: string, password: string, role: Role, onPakeStep?: (data: PakeStepData) => void | Promise<void>) => Promise<boolean>;
   logout: () => void;
   cameras: Camera[];
   assignments: Assignment[];
@@ -125,27 +130,66 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void restoreSession();
   }, []);
 
-  const login: AppCtx["login"] = async (username, password, role) => {
+  const performPakeHandshake = async (username: string, password: string, role: Role, onPakeStep?: (data: PakeStepData) => void | Promise<void>) => {
+    await onPakeStep?.({ step: 1 });
+    const start = await pakeStartRequest({ username, role });
+    
+    await onPakeStep?.({ 
+      step: 2, 
+      data: { 
+        salt: start.salt.substring(0, 16) + "...", 
+        serverMsg: start.server_msg.substring(0, 16) + "..." 
+      } 
+    });
+
+    const { clientMsg, confirmA, verify } = await buildPakeClient(
+      {
+        username,
+        server_id: start.server_id,
+        salt: start.salt,
+        server_msg: start.server_msg,
+        mhf: start.mhf,
+        kdf_aad: start.kdf_aad,
+      },
+      password
+    );
+
+    await onPakeStep?.({ 
+      step: 3, 
+      data: { 
+        clientMsg: clientMsg.substring(0, 16) + "..." 
+      } 
+    });
+    
+    await onPakeStep?.({ 
+      step: 4, 
+      data: { 
+        confirmA: confirmA.substring(0, 16) + "..." 
+      } 
+    });
+
+    const finish = await pakeFinishRequest({
+      session_id: start.session_id,
+      client_msg: clientMsg,
+      confirm_a: confirmA,
+    });
+    
+    verify(finish.confirm_b);
+    
+    await onPakeStep?.({ 
+      step: 5, 
+      data: { 
+        confirmB: finish.confirm_b.substring(0, 16) + "..." 
+      } 
+    });
+
+    return finish;
+  };
+
+  const login: AppCtx["login"] = async (username, password, role, onPakeStep) => {
     if (!username || !password) return false;
     try {
-      const start = await pakeStartRequest({ username, role });
-      const { clientMsg, confirmA, verify } = await buildPakeClient(
-        {
-          username,
-          server_id: start.server_id,
-          salt: start.salt,
-          server_msg: start.server_msg,
-          mhf: start.mhf,
-          kdf_aad: start.kdf_aad,
-        },
-        password
-      );
-      const finish = await pakeFinishRequest({
-        session_id: start.session_id,
-        client_msg: clientMsg,
-        confirm_a: confirmA,
-      });
-      verify(finish.confirm_b);
+      const finish = await performPakeHandshake(username, password, role, onPakeStep);
       const { access_token, user: loggedInUser } = finish;
       localStorage.setItem(TOKEN_KEY, access_token);
       setAuthToken(access_token);
@@ -157,24 +201,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (message.includes("PAKE verifier missing")) {
         try {
           await pakeUpgradeRequest({ username, password, role });
-          const retryStart = await pakeStartRequest({ username, role });
-          const { clientMsg, confirmA, verify } = await buildPakeClient(
-            {
-              username,
-              server_id: retryStart.server_id,
-              salt: retryStart.salt,
-              server_msg: retryStart.server_msg,
-              mhf: retryStart.mhf,
-              kdf_aad: retryStart.kdf_aad,
-            },
-            password
-          );
-          const finish = await pakeFinishRequest({
-            session_id: retryStart.session_id,
-            client_msg: clientMsg,
-            confirm_a: confirmA,
-          });
-          verify(finish.confirm_b);
+          const finish = await performPakeHandshake(username, password, role, onPakeStep);
           const { access_token, user: loggedInUser } = finish;
           localStorage.setItem(TOKEN_KEY, access_token);
           setAuthToken(access_token);
