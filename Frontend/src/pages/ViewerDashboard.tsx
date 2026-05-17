@@ -1,17 +1,20 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { LogOut, Shield, Lock, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useApp, formatTime } from "@/context/AppContext";
 import { SecurityBar } from "@/components/SecurityBar";
 import { CameraTile } from "@/components/CameraTile";
 import { AdminLocalPreview } from "@/components/AdminLocalPreview";
+import { getCameraStreamUrl } from "@/lib/api";
 import { toast } from "sonner";
 
 const ViewerDashboard = () => {
   const { user, logout, cameras, myAssignments } = useApp();
   const navigate = useNavigate();
   const prevCount = useRef(myAssignments.length);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   useEffect(() => {
     if (prevCount.current > 0 && myAssignments.length < prevCount.current) {
@@ -33,6 +36,11 @@ const ViewerDashboard = () => {
         return cam ? { ...cam, expiresIn: a.expiresIn, assignmentId: a.id } : null;
       })
       .filter(Boolean) as ((typeof cameras)[number] & { expiresIn: number; assignmentId: string })[]
+  );
+
+  const expandedCamera = useMemo(
+    () => (expandedId === null ? null : assignedCameras.find((c) => c.id === expandedId) ?? null),
+    [expandedId, assignedCameras]
   );
 
   return (
@@ -74,7 +82,7 @@ const ViewerDashboard = () => {
               {assignedCameras.map((c) => {
                 const lowTime = c.expiresIn < 60;
                 const preview = c.source_type === "ip_mjpeg" && c.source_url
-                  ? <img src={c.source_url} alt={`${c.name} feed`} className="absolute inset-0 h-full w-full object-cover" />
+                  ? <img src={getCameraStreamUrl(c.id)} alt={`${c.name} feed`} className="absolute inset-0 h-full w-full object-cover" />
                   : c.source_type === "admin_local"
                     ? <AdminLocalPreview cameraId={c.id} />
                     : null;
@@ -83,7 +91,13 @@ const ViewerDashboard = () => {
                     key={`${c.assignmentId}-${c.id}`}
                     className="rounded-lg border border-border bg-card overflow-hidden flex flex-col hover:border-primary/50 transition-colors"
                   >
-                    <CameraTile name={c.name} status={c.status} height="h-48" preview={preview} />
+                    <CameraTile
+                      name={c.name}
+                      status={c.status}
+                      height="h-48"
+                      preview={preview}
+                      onExpand={() => setExpandedId(c.id)}
+                    />
                     <div className="p-4 space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="font-medium text-sm">{c.name}</span>
@@ -113,6 +127,40 @@ const ViewerDashboard = () => {
           </div>
         )}
       </main>
+
+      <Dialog open={expandedId !== null} onOpenChange={(open) => { if (!open) setExpandedId(null); }}>
+        <DialogContent className="bg-card max-w-4xl">
+          {expandedCamera && (
+            <div className="space-y-4">
+              <DialogHeader>
+                <DialogTitle>{expandedCamera.name}</DialogTitle>
+              </DialogHeader>
+              <CameraTile
+                name={expandedCamera.name}
+                status={expandedCamera.status}
+                height="h-[420px]"
+                preview={expandedCamera.source_type === "ip_mjpeg" && expandedCamera.source_url
+                  ? <img src={getCameraStreamUrl(expandedCamera.id)} alt={`${expandedCamera.name} feed`} className="absolute inset-0 h-full w-full object-contain" />
+                  : expandedCamera.source_type === "admin_local"
+                    ? <AdminLocalPreview cameraId={expandedCamera.id} />
+                    : null
+                }
+              />
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className={`h-2 w-2 rounded-full ${expandedCamera.status === "online" ? "bg-success" : "bg-destructive"}`} />
+                  <span className={expandedCamera.status === "online" ? "text-success" : "text-destructive"}>
+                    {expandedCamera.status === "online" ? "Online" : "Offline"}
+                  </span>
+                </div>
+                <div className={`flex items-center gap-1.5 ${expandedCamera.expiresIn < 60 ? "text-warning" : "text-success"}`}>
+                  <Lock className="h-3 w-3" /> {formatTime(expandedCamera.expiresIn)}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

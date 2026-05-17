@@ -1,8 +1,12 @@
+import asyncio
+import contextlib
 from datetime import UTC, datetime, timedelta
 import logging
+from typing import AsyncIterator
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 import httpx
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -14,7 +18,7 @@ from .auth import create_access_token, hash_password, needs_password_rehash, ver
 from .audit import log_event, prune_expired_assignments, recent_events_for_user
 from .config import settings
 from .database import Base, SessionLocal, engine, ensure_camera_source_columns, ensure_user_pake_columns, get_db
-from .deps import get_current_user, require_admin
+from .deps import get_current_user, get_current_user_from_token, require_admin
 from .models import Assignment, Camera, CameraSourceType, PakeSession, User, UserRole
 from .pake_bridge import compute_verifier, finish_pake, generate_salt, pake_public_config, start_pake
 from .schemas import (
@@ -40,6 +44,95 @@ app = FastAPI(title="SecureCam Backend", version="0.1.0")
 logger = logging.getLogger("securecam.auth")
 
 CAMERA_FRAMES: dict[int, bytes] = {}
+CAMERA_STREAM_HUBS: dict[int, "CameraStreamHub"] = {}
+CAMERA_STREAM_LOCK = asyncio.Lock()
+
+
+class CameraStreamHub:
+    def __init__(self, camera_id: int, source_url: str) -> None:
+        self.camera_id = camera_id
+        self.source_url = source_url
+        self._subscribers: set[asyncio.Queue[bytes | None]] = set()
+        self._task: asyncio.Task | None = None
+        self._lock = asyncio.Lock()
+
+    async def add_subscriber(self) -> asyncio.Queue[bytes | None]:
+        queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=200)
+        async with self._lock:
+            self._subscribers.add(queue)
+            if not self._task or self._task.done():
+                self._task = asyncio.create_task(self._run())
+        return queue
+
+    async def remove_subscriber(self, queue: asyncio.Queue[bytes | None]) -> None:
+        async with self._lock:
+            self._subscribers.discard(queue)
+
+    async def shutdown(self) -> None:
+        async with self._lock:
+            subscribers = list(self._subscribers)
+        for queue in subscribers:
+            with contextlib.suppress(asyncio.QueueFull):
+                queue.put_nowait(None)
+        if self._task and not self._task.done():
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+        self._task = None
+
+    async def _run(self) -> None:
+        while True:
+            async with self._lock:
+                if not self._subscribers:
+                    return
+
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, read=None), follow_redirects=True) as client:
+                    async with client.stream("GET", self.source_url) as response:
+                        if response.status_code >= 400:
+                            await asyncio.sleep(1.5)
+                            continue
+                        async for chunk in response.aiter_bytes():
+                            if not chunk:
+                                continue
+                            async with self._lock:
+                                subscribers = list(self._subscribers)
+                            if not subscribers:
+                                return
+                            for queue in subscribers:
+                                if queue.full():
+                                    with contextlib.suppress(asyncio.QueueEmpty):
+                                        queue.get_nowait()
+                                with contextlib.suppress(asyncio.QueueFull):
+                                    queue.put_nowait(chunk)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                await asyncio.sleep(1.5)
+
+
+async def _get_stream_hub(camera_id: int, source_url: str) -> CameraStreamHub:
+    async with CAMERA_STREAM_LOCK:
+        hub = CAMERA_STREAM_HUBS.get(camera_id)
+        if hub and hub.source_url != source_url:
+            await hub.shutdown()
+            hub = None
+        if not hub:
+            hub = CameraStreamHub(camera_id, source_url)
+            CAMERA_STREAM_HUBS[camera_id] = hub
+        return hub
+
+
+async def _release_stream_hub(camera_id: int) -> None:
+    async with CAMERA_STREAM_LOCK:
+        hub = CAMERA_STREAM_HUBS.get(camera_id)
+        if not hub:
+            return
+        async with hub._lock:
+            if hub._subscribers:
+                return
+        await hub.shutdown()
+        CAMERA_STREAM_HUBS.pop(camera_id, None)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -309,6 +402,61 @@ def get_camera_frame(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No frame available")
 
     return Response(content=frame, media_type="image/jpeg")
+
+
+@app.get("/api/v1/cameras/{camera_id}/stream")
+async def stream_camera(
+    camera_id: int,
+    current_user: User = Depends(get_current_user_from_token),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    camera = db.get(Camera, camera_id)
+    if not camera:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
+
+    if camera.source_type != CameraSourceType.ip_mjpeg or not camera.source_url:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Camera is not configured for ip_mjpeg")
+
+    if current_user.role == UserRole.viewer:
+        now = datetime.now(UTC).replace(tzinfo=None)
+        assignments = db.scalars(
+            select(Assignment).where(
+                Assignment.viewer_id == current_user.id,
+                Assignment.expires_at > now,
+            )
+        ).all()
+        allowed_ids = {cid for a in assignments for cid in a.camera_ids}
+        if camera_id not in allowed_ids:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Camera not assigned")
+
+    media_type = "multipart/x-mixed-replace"
+    try:
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
+            head = await client.head(camera.source_url)
+            if head.status_code < 400:
+                media_type = head.headers.get("content-type", media_type)
+    except httpx.HTTPError:
+        pass
+
+    hub = await _get_stream_hub(camera_id, camera.source_url)
+    queue = await hub.add_subscriber()
+
+    async def iter_stream() -> AsyncIterator[bytes]:
+        try:
+            while True:
+                chunk = await queue.get()
+                if chunk is None:
+                    return
+                yield chunk
+        finally:
+            await hub.remove_subscriber(queue)
+            await _release_stream_hub(camera_id)
+
+    return StreamingResponse(
+        iter_stream(),
+        media_type=media_type,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/api/v1/admin/cameras/{camera_id}/frame")

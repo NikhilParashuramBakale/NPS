@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { LogOut, Shield, Camera as CamIcon, Users, X, UserPlus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useApp, formatTime } from "@/context/AppContext";
 import { SecurityBar } from "@/components/SecurityBar";
 import { CameraTile } from "@/components/CameraTile";
@@ -11,12 +12,19 @@ import { UserDialog } from "@/components/UserDialog";
 import { CameraSourceDialog } from "@/components/CameraSourceDialog";
 import { AdminLocalPreview } from "@/components/AdminLocalPreview";
 import { AdminLocalStreamer } from "@/components/AdminLocalStreamer";
+import { getCameraStreamUrl } from "@/lib/api";
 import { toast } from "sonner";
 
 const AdminDashboard = () => {
   const { user, logout, cameras, assignments, revokeAssignment } = useApp();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<"assignments" | "users">("assignments");
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  const expandedCamera = useMemo(
+    () => (expandedId === null ? null : cameras.find((c) => c.id === expandedId) ?? null),
+    [expandedId, cameras]
+  );
 
   const handleLogout = () => {
     logout();
@@ -87,12 +95,19 @@ const AdminDashboard = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {cameras.map((c) => {
               const preview = c.source_type === "ip_mjpeg" && c.source_url
-                ? <img src={c.source_url} alt={`${c.name} feed`} className="absolute inset-0 h-full w-full object-cover" />
+                ? <img src={getCameraStreamUrl(c.id)} alt={`${c.name} feed`} className="absolute inset-0 h-full w-full object-cover" />
                 : c.source_type === "admin_local"
                   ? <AdminLocalPreview cameraId={c.id} />
                   : null;
               return (
-                <CameraTile key={c.id} name={c.name} status={c.status} height="h-44" preview={preview} />
+                <CameraTile
+                  key={c.id}
+                  name={c.name}
+                  status={c.status}
+                  height="h-44"
+                  preview={preview}
+                  onExpand={() => setExpandedId(c.id)}
+                />
               );
             })}
           </div>
@@ -166,6 +181,43 @@ const AdminDashboard = () => {
           </Tabs>
         </aside>
       </div>
+
+      <Dialog open={expandedId !== null} onOpenChange={(open) => { if (!open) setExpandedId(null); }}>
+        <DialogContent className="bg-card max-w-4xl">
+          {expandedCamera && (
+            <div className="space-y-4">
+              <DialogHeader>
+                <DialogTitle>{expandedCamera.name}</DialogTitle>
+              </DialogHeader>
+              <CameraTile
+                name={expandedCamera.name}
+                status={expandedCamera.status}
+                height="h-[420px]"
+                preview={expandedCamera.source_type === "ip_mjpeg" && expandedCamera.source_url
+                  ? <img src={getCameraStreamUrl(expandedCamera.id)} alt={`${expandedCamera.name} feed`} className="absolute inset-0 h-full w-full object-contain" />
+                  : expandedCamera.source_type === "admin_local"
+                    ? <AdminLocalPreview cameraId={expandedCamera.id} />
+                    : null
+                }
+              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className={`h-2 w-2 rounded-full ${expandedCamera.status === "online" ? "bg-success" : "bg-destructive"}`} />
+                  <span className={expandedCamera.status === "online" ? "text-success" : "text-destructive"}>
+                    {expandedCamera.status === "online" ? "Online" : "Offline"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <CameraSourceDialog camera={expandedCamera} />
+                  {expandedCamera.source_type === "admin_local" && (
+                    <AdminLocalStreamer cameraId={expandedCamera.id} />
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

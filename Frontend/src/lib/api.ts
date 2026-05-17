@@ -10,6 +10,14 @@ export const setAuthToken = (token: string | null) => {
 
 export const getAuthToken = () => authToken;
 
+export const getCameraStreamUrl = (cameraId: number) => {
+  if (!authToken) {
+    return `${API_BASE_URL}/api/v1/cameras/${cameraId}/stream`;
+  }
+  const token = encodeURIComponent(authToken);
+  return `${API_BASE_URL}/api/v1/cameras/${cameraId}/stream?token=${token}`;
+};
+
 type LoginPayload = {
   username: string;
   password: string;
