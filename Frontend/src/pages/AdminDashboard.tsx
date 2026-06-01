@@ -16,9 +16,9 @@ import { getCameraStreamUrl } from "@/lib/api";
 import { toast } from "sonner";
 
 const AdminDashboard = () => {
-  const { user, logout, cameras, assignments, revokeAssignment } = useApp();
+  const { user, logout, cameras, assignments, revokeAssignment, viewers, updateCameraAccess } = useApp();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<"assignments" | "users">("assignments");
+  const [activeTab, setActiveTab] = useState<"assignments" | "users" | "viewer-cameras">("assignments");
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const expandedCamera = useMemo(
@@ -41,6 +41,9 @@ const AdminDashboard = () => {
     toast.error("Access revoked", { description: `${name}'s access was revoked` });
   };
 
+  const viewerCameras = cameras.filter((c) => c.owner_id !== null);
+  const viewerNameFor = (id: number | null) => viewers.find((v) => v.id === id)?.username ?? "Viewer";
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <SecurityBar />
@@ -57,32 +60,34 @@ const AdminDashboard = () => {
         </Button>
       </header>
 
-      <div className="grid flex-1 grid-cols-1 lg:grid-cols-[280px_1fr_360px] gap-4 p-4">
+      <div className="grid flex-1 grid-cols-1 lg:grid-cols-[320px_1fr_340px] gap-5 p-4 sm:p-6 bg-secondary/10">
         {/* Left: Cameras */}
-        <aside className="rounded-lg border border-border bg-card p-4 flex flex-col">
-          <div className="flex items-center gap-2 mb-3">
-            <CamIcon className="h-4 w-4 text-primary" />
-            <h2 className="font-medium text-sm">Cameras</h2>
-            <span className="ml-auto text-xs text-muted-foreground">{cameras.length}</span>
+        <aside className="rounded-xl border border-border bg-card shadow-sm p-4 flex flex-col">
+          <div className="flex items-center gap-2 mb-4">
+            <CamIcon className="h-5 w-5 text-primary" />
+            <h2 className="font-semibold text-base">Cameras</h2>
+            <span className="ml-auto flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
+              {cameras.length}
+            </span>
           </div>
-          <ul className="space-y-2 flex-1 overflow-auto">
+          <ul className="space-y-3 flex-1 overflow-auto pr-1">
             {cameras.map((c) => (
               <li
                 key={c.id}
-                className="flex items-center justify-between rounded-md border border-border bg-secondary/40 px-3 py-2.5 text-sm"
+                className="flex flex-col gap-3 rounded-lg border border-border/50 bg-secondary/20 p-3 hover:bg-secondary/40 transition-all hover:border-primary/30"
               >
-                <span className="truncate flex-1 mr-2">{c.name}</span>
-                <div className="flex items-center gap-2 shrink-0">
-                  {c.source_type === "admin_local" && <AdminLocalStreamer cameraId={c.id} />}
-                  <span className="flex items-center gap-1.5">
-                    <span
-                      className={`h-2 w-2 rounded-full ${c.status === "online" ? "bg-success animate-pulse" : "bg-destructive"}`}
-                    />
-                    <span className={`text-xs ${c.status === "online" ? "text-success" : "text-destructive"}`}>
-                      {c.status === "online" ? "Online" : "Offline"}
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-foreground truncate">{c.name}</span>
+                  {c.status === "online" && (
+                    <span className="flex items-center gap-1.5 text-[11px] font-medium text-success bg-success/10 px-2 py-0.5 rounded-full">
+                      <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
+                      <span>Online</span>
                     </span>
-                  </span>
-                  <CameraSourceDialog camera={c} />
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {c.source_type === "admin_local" && <AdminLocalStreamer cameraId={c.id} />}
+                  {c.owner_id === null && <CameraSourceDialog camera={c} />}
                 </div>
               </li>
             ))}
@@ -96,7 +101,7 @@ const AdminDashboard = () => {
             {cameras.map((c) => {
               const preview = c.source_type === "ip_mjpeg" && c.source_url
                 ? <img src={getCameraStreamUrl(c.id)} alt={`${c.name} feed`} className="absolute inset-0 h-full w-full object-cover" />
-                : c.source_type === "admin_local"
+                : c.source_type === "admin_local" || c.source_type === "viewer_local"
                   ? <AdminLocalPreview cameraId={c.id} />
                   : null;
               return (
@@ -116,13 +121,17 @@ const AdminDashboard = () => {
         {/* Right: Management Panel */}
         <aside className="rounded-lg border border-border bg-card p-4 flex flex-col">
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "assignments" | "users")} className="flex flex-col h-full">
-            <TabsList className="grid w-full grid-cols-2 mb-3">
+            <TabsList className="grid w-full grid-cols-3 mb-3">
               <TabsTrigger value="assignments" className="text-xs">
                 <Users className="h-3.5 w-3.5 mr-1" /> Assignments
                 <span className="ml-auto text-xs text-muted-foreground">{assignments.length}</span>
               </TabsTrigger>
               <TabsTrigger value="users" className="text-xs">
                 <UserPlus className="h-3.5 w-3.5 mr-1" /> Users
+              </TabsTrigger>
+              <TabsTrigger value="viewer-cameras" className="text-xs">
+                <CamIcon className="h-3.5 w-3.5 mr-1" /> Viewer Cameras
+                <span className="ml-auto text-xs text-muted-foreground">{viewerCameras.length}</span>
               </TabsTrigger>
             </TabsList>
             
@@ -178,6 +187,88 @@ const AdminDashboard = () => {
                 <UserDialog />
               </div>
             </TabsContent>
+
+            <TabsContent value="viewer-cameras" className="flex-1 overflow-auto mt-0">
+              <div className="space-y-2">
+                {viewerCameras.length === 0 && (
+                  <p className="text-xs text-muted-foreground text-center py-6">
+                    No viewer cameras yet
+                  </p>
+                )}
+                {viewerCameras.map((c) => (
+                  <div
+                    key={c.id}
+                    className="rounded-md border border-border bg-secondary/40 p-3 space-y-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium truncate">{c.name}</div>
+                        <div className="text-xs text-muted-foreground">Owner: {viewerNameFor(c.owner_id)}</div>
+                      </div>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${c.is_active ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
+                        {c.is_active ? "Active" : "Disabled"}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className={`px-2 py-0.5 rounded-full ${c.share_approved ? "bg-success/10 text-success" : "bg-secondary/70 text-muted-foreground"}`}>
+                        {c.share_approved ? "Share approved" : c.share_requested ? "Share requested" : "Not shared"}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-full ${c.source_type === "ip_mjpeg" ? "bg-secondary/70 text-muted-foreground" : "bg-secondary/70 text-muted-foreground"}`}>
+                        {c.source_type === "ip_mjpeg" ? "IP Webcam" : "Viewer webcam"}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {c.share_requested && !c.share_approved && (
+                        <Button
+                          size="sm"
+                          className="bg-primary hover:bg-primary/90"
+                          onClick={async () => {
+                            const ok = await updateCameraAccess(c.id, { share_approved: true });
+                            if (ok) {
+                              toast.success("Share approved", { description: c.name });
+                            } else {
+                              toast.error("Could not approve share");
+                            }
+                          }}
+                        >
+                          Approve Share
+                        </Button>
+                      )}
+                      {!c.share_approved && !c.share_requested && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={async () => {
+                            const ok = await updateCameraAccess(c.id, { share_approved: true });
+                            if (ok) {
+                              toast.success("Share allowed", { description: c.name });
+                            } else {
+                              toast.error("Could not allow share");
+                            }
+                          }}
+                        >
+                          Allow Share
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant={c.is_active ? "destructive" : "secondary"}
+                        onClick={async () => {
+                          const ok = await updateCameraAccess(c.id, { is_active: !c.is_active });
+                          if (ok) {
+                            toast.success(c.is_active ? "Camera disabled" : "Camera enabled", { description: c.name });
+                          } else {
+                            toast.error("Could not update camera status");
+                          }
+                        }}
+                      >
+                        {c.is_active ? "Disable" : "Enable"}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </TabsContent>
           </Tabs>
         </aside>
       </div>
@@ -195,21 +286,21 @@ const AdminDashboard = () => {
                 height="h-[420px]"
                 preview={expandedCamera.source_type === "ip_mjpeg" && expandedCamera.source_url
                   ? <img src={getCameraStreamUrl(expandedCamera.id)} alt={`${expandedCamera.name} feed`} className="absolute inset-0 h-full w-full object-contain" />
-                  : expandedCamera.source_type === "admin_local"
+                  : expandedCamera.source_type === "admin_local" || expandedCamera.source_type === "viewer_local"
                     ? <AdminLocalPreview cameraId={expandedCamera.id} />
                     : null
                 }
               />
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-sm">
-                  <span className={`h-2 w-2 rounded-full ${expandedCamera.status === "online" ? "bg-success" : "bg-destructive"}`} />
-                  <span className={expandedCamera.status === "online" ? "text-success" : "text-destructive"}>
-                    {expandedCamera.status === "online" ? "Online" : "Offline"}
-                  </span>
-                </div>
+                {expandedCamera.status === "online" && (
+                  <div className="flex items-center gap-2 text-sm text-success">
+                    <span className="h-2 w-2 rounded-full bg-success" />
+                    <span>Online</span>
+                  </div>
+                )}
                 <div className="flex items-center gap-2">
-                  <CameraSourceDialog camera={expandedCamera} />
-                  {expandedCamera.source_type === "admin_local" && (
+                  {expandedCamera.owner_id === null && <CameraSourceDialog camera={expandedCamera} />}
+                  {expandedCamera.source_type === "admin_local" && expandedCamera.owner_id === null && (
                     <AdminLocalStreamer cameraId={expandedCamera.id} />
                   )}
                 </div>

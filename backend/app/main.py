@@ -19,12 +19,14 @@ from .audit import log_event, prune_expired_assignments, recent_events_for_user
 from .config import settings
 from .database import Base, SessionLocal, engine, ensure_camera_source_columns, ensure_user_pake_columns, get_db
 from .deps import get_current_user, get_current_user_from_token, require_admin
-from .models import Assignment, Camera, CameraSourceType, PakeSession, User, UserRole
+from .models import Assignment, Camera, CameraSourceType, CameraStatus, PakeSession, User, UserRole
 from .pake_bridge import compute_verifier, finish_pake, generate_salt, pake_public_config, start_pake
 from .schemas import (
+    AdminCameraAccessUpdate,
+    AdminUserCreate,
     AssignmentCreate,
     AssignmentOut,
-    AdminUserCreate,
+    CameraCreate,
     CameraOut,
     CameraUpdate,
     LoginRequest,
@@ -232,6 +234,20 @@ def _prune_expired_pake_sessions(db: Session) -> None:
     db.commit()
 
 
+def _as_camera_out(camera: Camera) -> CameraOut:
+    return CameraOut(
+        id=camera.id,
+        name=camera.name,
+        status=camera.status.value,
+        source_type=camera.source_type.value if camera.source_type else CameraSourceType.unconfigured.value,
+        source_url=camera.source_url,
+        owner_id=camera.owner_id,
+        is_active=camera.is_active,
+        share_requested=camera.share_requested,
+        share_approved=camera.share_approved,
+    )
+
+
 @app.post("/api/v1/auth/pake/start", response_model=PakeStartResponse)
 def pake_start(payload: PakeStartRequest, db: Session = Depends(get_db)) -> PakeStartResponse:
     user = db.scalar(select(User).where(User.username == payload.username))
@@ -356,23 +372,136 @@ def list_cameras(current_user: User = Depends(get_current_user), db: Session = D
         assignments = db.scalars(
             select(Assignment).where(Assignment.viewer_id == current_user.id, Assignment.expires_at > now)
         ).all()
-        camera_ids = sorted({cid for a in assignments for cid in a.camera_ids})
-        if not camera_ids:
-            return []
-        cameras = db.scalars(select(Camera).where(Camera.id.in_(camera_ids)).order_by(Camera.id)).all()
+        assigned_ids = {cid for a in assignments for cid in a.camera_ids}
+        owned = db.scalars(select(Camera).where(Camera.owner_id == current_user.id).order_by(Camera.id)).all()
+        cameras: dict[int, Camera] = {}
+        if assigned_ids:
+            for cam in db.scalars(select(Camera).where(Camera.id.in_(assigned_ids)).order_by(Camera.id)).all():
+                cameras[cam.id] = cam
+        for cam in owned:
+            cameras[cam.id] = cam
+        visible = [cam for cam in cameras.values() if cam.is_active]
+        visible.sort(key=lambda cam: cam.id)
+        return [_as_camera_out(camera) for camera in visible]
     else:
         cameras = db.scalars(select(Camera).order_by(Camera.id)).all()
+        return [_as_camera_out(camera) for camera in cameras]
 
-    return [
-        CameraOut(
-            id=c.id,
-            name=c.name,
-            status=c.status.value,
-            source_type=c.source_type.value if c.source_type else CameraSourceType.unconfigured.value,
-            source_url=c.source_url,
-        )
-        for c in cameras
-    ]
+
+@app.post("/api/v1/cameras", response_model=CameraOut)
+def create_viewer_camera(
+    payload: CameraCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CameraOut:
+    if current_user.role != UserRole.viewer:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Viewer role required")
+
+    if payload.source_type not in {CameraSourceType.ip_mjpeg.value, CameraSourceType.viewer_local.value}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid source_type")
+
+    if payload.source_type == CameraSourceType.ip_mjpeg.value and not payload.source_url:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="source_url required for ip_mjpeg")
+
+    existing = db.scalar(select(Camera).where(Camera.name == payload.name))
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Camera name already exists")
+
+    camera = Camera(
+        name=payload.name,
+        status=CameraStatus.online,
+        source_type=CameraSourceType(payload.source_type),
+        source_url=payload.source_url if payload.source_type == CameraSourceType.ip_mjpeg.value else None,
+        owner_id=current_user.id,
+        is_active=True,
+        share_requested=bool(payload.request_share),
+        share_approved=False,
+    )
+    db.add(camera)
+    db.commit()
+    db.refresh(camera)
+
+    log_event(
+        db,
+        "viewer_camera_created",
+        actor_username=current_user.username,
+        target_username=None,
+        details={"camera_id": camera.id, "source_type": camera.source_type.value, "request_share": camera.share_requested},
+    )
+
+    return _as_camera_out(camera)
+
+
+@app.put("/api/v1/cameras/{camera_id}", response_model=CameraOut)
+def update_viewer_camera(
+    camera_id: int,
+    payload: CameraUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CameraOut:
+    camera = db.get(Camera, camera_id)
+    if not camera:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
+
+    if camera.owner_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Camera owner required")
+
+    if not camera.is_active:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Camera is disabled")
+
+    if payload.source_type not in {CameraSourceType.ip_mjpeg.value, CameraSourceType.viewer_local.value}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid source_type")
+
+    if payload.source_type == CameraSourceType.ip_mjpeg.value and not payload.source_url:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="source_url required for ip_mjpeg")
+
+    camera.source_type = CameraSourceType(payload.source_type)
+    camera.source_url = payload.source_url if payload.source_type == CameraSourceType.ip_mjpeg.value else None
+    db.add(camera)
+    db.commit()
+    db.refresh(camera)
+
+    log_event(
+        db,
+        "viewer_camera_updated",
+        actor_username=current_user.username,
+        target_username=None,
+        details={"camera_id": camera.id, "source_type": camera.source_type.value},
+    )
+
+    return _as_camera_out(camera)
+
+
+@app.post("/api/v1/cameras/{camera_id}/share-request", response_model=CameraOut)
+def request_camera_share(
+    camera_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CameraOut:
+    camera = db.get(Camera, camera_id)
+    if not camera:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
+
+    if camera.owner_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Camera owner required")
+
+    if not camera.is_active:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Camera is disabled")
+
+    camera.share_requested = True
+    db.add(camera)
+    db.commit()
+    db.refresh(camera)
+
+    log_event(
+        db,
+        "viewer_camera_share_requested",
+        actor_username=current_user.username,
+        target_username=None,
+        details={"camera_id": camera.id},
+    )
+
+    return _as_camera_out(camera)
 
 
 @app.get("/api/v1/cameras/{camera_id}/frame")
@@ -385,7 +514,12 @@ def get_camera_frame(
     if not camera:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
 
-    if current_user.role == UserRole.viewer:
+    if not camera.is_active and current_user.role != UserRole.admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Camera is disabled")
+
+    is_owner = camera.owner_id == current_user.id
+
+    if current_user.role == UserRole.viewer and not is_owner:
         now = datetime.now(UTC).replace(tzinfo=None)
         assignments = db.scalars(
             select(Assignment).where(
@@ -414,10 +548,15 @@ async def stream_camera(
     if not camera:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
 
+    if not camera.is_active and current_user.role != UserRole.admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Camera is disabled")
+
     if camera.source_type != CameraSourceType.ip_mjpeg or not camera.source_url:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Camera is not configured for ip_mjpeg")
 
-    if current_user.role == UserRole.viewer:
+    is_owner = camera.owner_id == current_user.id
+
+    if current_user.role == UserRole.viewer and not is_owner:
         now = datetime.now(UTC).replace(tzinfo=None)
         assignments = db.scalars(
             select(Assignment).where(
@@ -482,6 +621,34 @@ async def upload_camera_frame(
     return {"status": "ok"}
 
 
+@app.post("/api/v1/cameras/{camera_id}/frame")
+async def upload_viewer_camera_frame(
+    camera_id: int,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    camera = db.get(Camera, camera_id)
+    if not camera:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
+
+    if camera.owner_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Camera owner required")
+
+    if not camera.is_active:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Camera is disabled")
+
+    if camera.source_type != CameraSourceType.viewer_local:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Camera is not configured for viewer_local")
+
+    contents = await file.read()
+    if len(contents) > 2_000_000:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Frame too large")
+
+    CAMERA_FRAMES[camera_id] = contents
+    return {"status": "ok"}
+
+
 @app.put("/api/v1/admin/cameras/{camera_id}", response_model=CameraOut)
 def update_camera_source(
     camera_id: int,
@@ -499,6 +666,9 @@ def update_camera_source(
     camera = db.get(Camera, camera_id)
     if not camera:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
+
+    if camera.owner_id is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Viewer-managed camera")
 
     if payload.source_type == CameraSourceType.ip_mjpeg.value and not payload.source_url:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="source_url required for ip_mjpeg")
@@ -520,13 +690,47 @@ def update_camera_source(
         details={"camera_id": camera.id, "source_type": camera.source_type.value},
     )
 
-    return CameraOut(
-        id=camera.id,
-        name=camera.name,
-        status=camera.status.value,
-        source_type=camera.source_type.value,
-        source_url=camera.source_url,
+    return _as_camera_out(camera)
+
+
+@app.put("/api/v1/admin/cameras/{camera_id}/access", response_model=CameraOut)
+def update_camera_access(
+    camera_id: int,
+    payload: AdminCameraAccessUpdate,
+    admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> CameraOut:
+    camera = db.get(Camera, camera_id)
+    if not camera:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
+
+    if payload.is_active is not None:
+        camera.is_active = payload.is_active
+
+    if payload.share_approved is not None:
+        camera.share_approved = payload.share_approved
+        camera.share_requested = False
+    elif payload.clear_share_request:
+        camera.share_requested = False
+
+    db.add(camera)
+    db.commit()
+    db.refresh(camera)
+
+    log_event(
+        db,
+        "camera_access_updated",
+        actor_username=admin_user.username,
+        target_username=None,
+        details={
+            "camera_id": camera.id,
+            "is_active": camera.is_active,
+            "share_approved": camera.share_approved,
+            "share_requested": camera.share_requested,
+        },
     )
+
+    return _as_camera_out(camera)
 
 
 @app.get("/api/v1/admin/cameras/{camera_id}/probe")
@@ -647,6 +851,20 @@ def create_assignment(
     cameras = db.scalars(select(Camera).where(Camera.id.in_(payload.camera_ids))).all()
     if len(cameras) != len(set(payload.camera_ids)):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="One or more camera_ids are invalid")
+
+    for camera in cameras:
+        if not camera.is_active:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Camera is disabled")
+        # Allow admins to assign viewer-managed cameras even if the owner hasn't approved sharing.
+        if camera.owner_id is not None and not camera.share_approved:
+            # log that admin is overriding owner's share approval
+            log_event(
+                db,
+                "assignment_created_admin_override",
+                actor_username=_admin_user.username,
+                target_username=None,
+                details={"camera_id": camera.id, "owner_id": camera.owner_id},
+            )
 
     expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=payload.duration_minutes)
     assignment = Assignment(viewer_id=payload.viewer_id, camera_ids=sorted(set(payload.camera_ids)), expires_at=expires_at)

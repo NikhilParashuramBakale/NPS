@@ -11,7 +11,6 @@ export const AdminLocalPreview = ({ cameraId }: Props) => {
 
   useEffect(() => {
     let active = true;
-    let timer: number | undefined;
     let currentUrl: string | null = null;
 
     const loadFrame = async () => {
@@ -39,7 +38,7 @@ export const AdminLocalPreview = ({ cameraId }: Props) => {
     };
 
     loadFrame();
-    timer = window.setInterval(loadFrame, 1000);
+    const timer = window.setInterval(loadFrame, 1000);
 
     return () => {
       active = false;

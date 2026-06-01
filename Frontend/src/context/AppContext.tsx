@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from "react";
 import {
   createAssignment as createAssignmentApi,
+  createViewerCamera as createViewerCameraApi,
   createUser as createUserApi,
   deleteAssignment,
   fetchAssignments,
@@ -10,8 +11,11 @@ import {
   pakeFinishRequest,
   pakeStartRequest,
   pakeUpgradeRequest,
+  requestCameraShare as requestCameraShareApi,
   setAuthToken,
+  updateCameraAccess as updateCameraAccessApi,
   updateCameraSource as updateCameraSourceApi,
+  updateViewerCamera as updateViewerCameraApi,
 } from "@/lib/api";
 import { buildPakeClient } from "@/lib/pake";
 
@@ -27,8 +31,12 @@ export interface Camera {
   id: number;
   name: string;
   status: "online" | "offline";
-  source_type: "unconfigured" | "ip_mjpeg" | "admin_local";
+  source_type: "unconfigured" | "ip_mjpeg" | "admin_local" | "viewer_local";
   source_url: string | null;
+  owner_id: number | null;
+  is_active: boolean;
+  share_requested: boolean;
+  share_approved: boolean;
 }
 
 export interface Assignment {
@@ -56,6 +64,10 @@ interface AppCtx {
   revokeAssignment: (id: string) => Promise<boolean>;
   createUser: (payload: { username: string; password: string; role: Role }) => Promise<boolean>;
   updateCameraSource: (cameraId: number, payload: { source_type: Camera["source_type"]; source_url: string | null }) => Promise<boolean>;
+  updateCameraAccess: (cameraId: number, payload: { is_active?: boolean; share_approved?: boolean; clear_share_request?: boolean }) => Promise<boolean>;
+  createViewerCamera: (payload: { name: string; source_type: "ip_mjpeg" | "viewer_local"; source_url: string | null; request_share: boolean }) => Promise<boolean>;
+  updateViewerCamera: (cameraId: number, payload: { source_type: "ip_mjpeg" | "viewer_local"; source_url: string | null }) => Promise<boolean>;
+  requestCameraShare: (cameraId: number) => Promise<boolean>;
   myAssignments: Assignment[];
 }
 
@@ -269,6 +281,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const updateCameraAccess: AppCtx["updateCameraAccess"] = async (cameraId, payload) => {
+    try {
+      await updateCameraAccessApi(cameraId, payload);
+      await syncDashboardData(user?.role);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const createViewerCamera: AppCtx["createViewerCamera"] = async (payload) => {
+    try {
+      await createViewerCameraApi(payload);
+      await syncDashboardData(user?.role);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const updateViewerCamera: AppCtx["updateViewerCamera"] = async (cameraId, payload) => {
+    try {
+      await updateViewerCameraApi(cameraId, payload);
+      await syncDashboardData(user?.role);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const requestCameraShare: AppCtx["requestCameraShare"] = async (cameraId) => {
+    try {
+      await requestCameraShareApi(cameraId);
+      await syncDashboardData(user?.role);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const myAssignments = useMemo(() =>
     user?.role === "viewer"
       ? assignments.filter((a) => a.viewerId === user.id)
@@ -290,6 +342,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         revokeAssignment,
         createUser,
         updateCameraSource,
+        updateCameraAccess,
+        createViewerCamera,
+        updateViewerCamera,
+        requestCameraShare,
         myAssignments,
       }}
     >

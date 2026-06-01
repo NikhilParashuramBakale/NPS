@@ -22,6 +22,7 @@ class CameraSourceType(str, enum.Enum):
     unconfigured = "unconfigured"
     ip_mjpeg = "ip_mjpeg"
     admin_local = "admin_local"
+    viewer_local = "viewer_local"
 
 
 class User(Base):
@@ -43,6 +44,10 @@ class Camera(Base):
     status: Mapped[CameraStatus] = mapped_column(Enum(CameraStatus), default=CameraStatus.online)
     source_type: Mapped[CameraSourceType] = mapped_column(Enum(CameraSourceType), default=CameraSourceType.unconfigured)
     source_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    share_requested: Mapped[bool] = mapped_column(default=False)
+    share_approved: Mapped[bool] = mapped_column(default=True)
 
 
 class Assignment(Base):

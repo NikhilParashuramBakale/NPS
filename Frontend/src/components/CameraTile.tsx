@@ -26,9 +26,7 @@ export const CameraTile = ({ name, status = "online", height = "h-48", preview =
         </div>
       )}
       <div className="absolute left-2 top-2 flex items-center gap-1.5 rounded-md bg-background/70 px-2 py-1 text-xs backdrop-blur">
-        <span
-          className={`h-2 w-2 rounded-full ${offline ? "bg-destructive" : "bg-success animate-pulse"}`}
-        />
+        {!offline && <span className="h-2 w-2 rounded-full bg-success animate-pulse" />}
         <span className="font-medium">{name}</span>
       </div>
       {onExpand && (

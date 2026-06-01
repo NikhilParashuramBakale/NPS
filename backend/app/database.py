@@ -53,4 +53,16 @@ def ensure_camera_source_columns() -> None:
             conn.execute(text("ALTER TABLE cameras ADD COLUMN source_type VARCHAR(32)"))
         if "source_url" not in columns:
             conn.execute(text("ALTER TABLE cameras ADD COLUMN source_url VARCHAR(512)"))
+        if "owner_id" not in columns:
+            conn.execute(text("ALTER TABLE cameras ADD COLUMN owner_id INTEGER"))
+        if "is_active" not in columns:
+            conn.execute(text("ALTER TABLE cameras ADD COLUMN is_active BOOLEAN"))
+        if "share_requested" not in columns:
+            conn.execute(text("ALTER TABLE cameras ADD COLUMN share_requested BOOLEAN"))
+        if "share_approved" not in columns:
+            conn.execute(text("ALTER TABLE cameras ADD COLUMN share_approved BOOLEAN"))
+
+        conn.execute(text("UPDATE cameras SET is_active = 1 WHERE is_active IS NULL"))
+        conn.execute(text("UPDATE cameras SET share_requested = 0 WHERE share_requested IS NULL"))
+        conn.execute(text("UPDATE cameras SET share_approved = 1 WHERE share_approved IS NULL"))
         conn.commit()

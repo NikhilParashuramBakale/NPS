@@ -70,11 +70,28 @@ class CameraOut(BaseModel):
     status: str
     source_type: str
     source_url: str | None = None
+    owner_id: int | None = None
+    is_active: bool = True
+    share_requested: bool = False
+    share_approved: bool = True
+
+
+class CameraCreate(BaseModel):
+    name: str = Field(..., min_length=2, max_length=120)
+    source_type: str
+    source_url: str | None = None
+    request_share: bool = False
 
 
 class CameraUpdate(BaseModel):
     source_type: str
     source_url: str | None = None
+
+
+class AdminCameraAccessUpdate(BaseModel):
+    is_active: bool | None = None
+    share_approved: bool | None = None
+    clear_share_request: bool = False
 
 
 class AssignmentCreate(BaseModel):

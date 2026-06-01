@@ -71,8 +71,12 @@ export type ApiCamera = {
   id: number;
   name: string;
   status: "online" | "offline";
-  source_type: "unconfigured" | "ip_mjpeg" | "admin_local";
+  source_type: "unconfigured" | "ip_mjpeg" | "admin_local" | "viewer_local";
   source_url: string | null;
+  owner_id: number | null;
+  is_active: boolean;
+  share_requested: boolean;
+  share_approved: boolean;
 };
 
 export type ApiAssignment = {
@@ -114,6 +118,19 @@ type CreateUserPayload = {
 type UpdateCameraPayload = {
   source_type: ApiCamera["source_type"];
   source_url: string | null;
+};
+
+type CreateCameraPayload = {
+  name: string;
+  source_type: "ip_mjpeg" | "viewer_local";
+  source_url: string | null;
+  request_share: boolean;
+};
+
+type AdminCameraAccessPayload = {
+  is_active?: boolean;
+  share_approved?: boolean;
+  clear_share_request?: boolean;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -193,6 +210,29 @@ export const updateCameraSource = (cameraId: number, payload: UpdateCameraPayloa
     body: JSON.stringify(payload),
   });
 
+export const updateCameraAccess = (cameraId: number, payload: AdminCameraAccessPayload) =>
+  request<ApiCamera>(`/api/v1/admin/cameras/${cameraId}/access`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+
+export const createViewerCamera = (payload: CreateCameraPayload) =>
+  request<ApiCamera>("/api/v1/cameras", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const updateViewerCamera = (cameraId: number, payload: UpdateCameraPayload) =>
+  request<ApiCamera>(`/api/v1/cameras/${cameraId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+
+export const requestCameraShare = (cameraId: number) =>
+  request<ApiCamera>(`/api/v1/cameras/${cameraId}/share-request`, {
+    method: "POST",
+  });
+
 export const probeCameraSource = (cameraId: number) =>
   request<{ ok: boolean; status_code: number; detail: string }>(`/api/v1/admin/cameras/${cameraId}/probe`);
 
@@ -205,6 +245,30 @@ export const uploadCameraFrame = async (cameraId: number, blob: Blob) => {
   form.append("file", blob, "frame.jpg");
 
   const response = await fetch(`${API_BASE_URL}/api/v1/admin/cameras/${cameraId}/frame`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: form,
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Request failed with ${response.status}`);
+  }
+
+  return response.json() as Promise<{ status: string }>;
+};
+
+export const uploadViewerFrame = async (cameraId: number, blob: Blob) => {
+  if (!authToken) {
+    throw new Error("Missing auth token");
+  }
+
+  const form = new FormData();
+  form.append("file", blob, "frame.jpg");
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/cameras/${cameraId}/frame`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${authToken}`,

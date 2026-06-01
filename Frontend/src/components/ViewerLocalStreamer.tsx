@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { uploadCameraFrame } from "@/lib/api";
+import { uploadViewerFrame } from "@/lib/api";
 import { toast } from "sonner";
 
 interface Props {
   cameraId: number;
 }
 
-export const AdminLocalStreamer = ({ cameraId }: Props) => {
+export const ViewerLocalStreamer = ({ cameraId }: Props) => {
   const [streaming, setStreaming] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -81,7 +81,7 @@ export const AdminLocalStreamer = ({ cameraId }: Props) => {
             return;
           }
           try {
-            await uploadCameraFrame(cameraId, blob);
+            await uploadViewerFrame(cameraId, blob);
           } catch {
             // ignore
           } finally {
@@ -98,7 +98,7 @@ export const AdminLocalStreamer = ({ cameraId }: Props) => {
       timerRef.current = window.setTimeout(runCapture, 0) as unknown as number;
 
       setStreaming(true);
-      toast.success("Admin webcam streaming", { description: "Viewers will see updates shortly." });
+      toast.success("Viewer webcam streaming", { description: "Admin will see updates shortly." });
     } catch {
       toast.error("Could not start webcam");
     }

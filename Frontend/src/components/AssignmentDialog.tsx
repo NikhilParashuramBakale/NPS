@@ -9,7 +9,7 @@ import { useApp } from "@/context/AppContext";
 import { toast } from "sonner";
 
 export const AssignmentDialog = () => {
-  const { cameras, addAssignment, viewers } = useApp();
+  const { cameras, addAssignment, viewers, user } = useApp();
   const [open, setOpen] = useState(false);
   const [viewerId, setViewerId] = useState<string>("");
   const [cameraIds, setCameraIds] = useState<number[]>([]);
@@ -78,18 +78,23 @@ export const AssignmentDialog = () => {
           <div className="space-y-1.5">
             <Label>Cameras</Label>
             <div className="grid grid-cols-2 gap-2 rounded-md border border-border p-3">
-              {cameras.map((c) => (
-                <label key={c.id} className="flex items-center gap-2 cursor-pointer text-sm">
-                  <Checkbox
-                    checked={cameraIds.includes(c.id)}
-                    onCheckedChange={() => toggleCam(c.id)}
-                  />
-                  <span>{c.name}</span>
-                  <span className={`ml-auto text-xs ${c.status === "online" ? "text-success" : "text-destructive"}`}>
-                    {c.status}
-                  </span>
-                </label>
-              ))}
+              {cameras.map((c) => {
+                const shareOk = c.owner_id === null || c.share_approved || user?.role === "admin";
+                const selectable = c.is_active && shareOk;
+                return (
+                  <label key={c.id} className={`flex items-center gap-2 text-sm ${selectable ? "cursor-pointer" : "opacity-60"}`}>
+                    <Checkbox
+                      checked={cameraIds.includes(c.id)}
+                      onCheckedChange={() => toggleCam(c.id)}
+                      disabled={!selectable}
+                    />
+                    <span>{c.name}</span>
+                    <span className={`ml-auto text-xs ${c.status === "online" ? "text-success" : "text-destructive"}`}>
+                      {c.status}
+                    </span>
+                  </label>
+                );
+              })}
             </div>
           </div>
 
