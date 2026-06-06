@@ -19,7 +19,7 @@ from .audit import log_event, prune_expired_assignments, recent_events_for_user
 from .config import settings
 from .database import Base, SessionLocal, engine, ensure_camera_source_columns, ensure_user_pake_columns, get_db
 from .deps import get_current_user, get_current_user_from_token, require_admin
-from .models import Assignment, Camera, CameraSourceType, CameraStatus, PakeSession, User, UserRole
+from .models import Assignment, Camera, CameraSourceType, CameraStatus, PakeSession, User, UserRole, AccessRequest, AccessRequestStatus
 from .pake_bridge import compute_verifier, finish_pake, generate_salt, pake_public_config, start_pake
 from .schemas import (
     AdminCameraAccessUpdate,
@@ -39,6 +39,9 @@ from .schemas import (
     PakeUpgradeResponse,
     SecurityEventOut,
     UserOut,
+    AccessRequestCreate,
+    AccessRequestOut,
+    AccessRequestReview,
 )
 from .seed import seed_data
 
@@ -433,6 +436,15 @@ def create_viewer_camera(
     )
 
     return _as_camera_out(camera, current_user.id, current_user.role)
+
+
+@app.get("/api/v1/cameras/requestable", response_model=list[CameraOut])
+def get_requestable_cameras(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> list[CameraOut]:
+    cameras = db.scalars(select(Camera).where(Camera.owner_id.is_(None), Camera.is_active.is_(True)).order_by(Camera.id)).all()
+    return [_as_camera_out(cam, current_user.id, current_user.role) for cam in cameras]
 
 
 @app.put("/api/v1/cameras/{camera_id}", response_model=CameraOut)
@@ -921,3 +933,111 @@ def security_events(current_user: User = Depends(get_current_user), db: Session 
         )
         for event in events
     ]
+
+
+def _as_access_request_out(r: AccessRequest, db: Session) -> AccessRequestOut:
+    requester = db.get(User, r.requester_id)
+    camera = db.get(Camera, r.camera_id)
+    return AccessRequestOut(
+        id=r.id,
+        requester_id=r.requester_id,
+        requester_name=requester.username if requester else "Unknown",
+        camera_id=r.camera_id,
+        camera_name=camera.name if camera else "Unknown",
+        reason=r.reason,
+        status=r.status.value,
+        requested_at=r.requested_at,
+        reviewed_at=r.reviewed_at,
+        reviewed_by=r.reviewed_by
+    )
+
+
+@app.get("/api/v1/requests/my", response_model=list[AccessRequestOut])
+def get_my_requests(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> list[AccessRequestOut]:
+    requests = db.scalars(select(AccessRequest).where(AccessRequest.requester_id == current_user.id).order_by(AccessRequest.requested_at.desc())).all()
+    return [_as_access_request_out(r, db) for r in requests]
+
+
+@app.get("/api/v1/requests/pending", response_model=list[AccessRequestOut])
+def get_pending_requests(
+    admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+) -> list[AccessRequestOut]:
+    requests = db.scalars(select(AccessRequest).where(AccessRequest.status == AccessRequestStatus.pending).order_by(AccessRequest.requested_at.asc())).all()
+    return [_as_access_request_out(r, db) for r in requests]
+
+
+@app.post("/api/v1/requests", response_model=AccessRequestOut)
+def create_access_request(
+    payload: AccessRequestCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> AccessRequestOut:
+    camera = db.get(Camera, payload.camera_id)
+    if not camera or not camera.is_active or camera.owner_id is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid camera")
+        
+    req = AccessRequest(
+        requester_id=current_user.id,
+        camera_id=payload.camera_id,
+        reason=payload.reason,
+        status=AccessRequestStatus.pending
+    )
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+    
+    log_event(db, "access_request_created", actor_username=current_user.username, details={"camera_id": camera.id})
+    return _as_access_request_out(req, db)
+
+
+@app.post("/api/v1/requests/{request_id}/approve", response_model=AssignmentOut)
+def approve_request(
+    request_id: int,
+    payload: AccessRequestReview,
+    admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+) -> AssignmentOut:
+    req = db.get(AccessRequest, request_id)
+    if not req or req.status != AccessRequestStatus.pending:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid request")
+        
+    req.status = AccessRequestStatus.approved
+    req.reviewed_by = admin_user.id
+    req.reviewed_at = datetime.now(UTC).replace(tzinfo=None)
+    db.add(req)
+    
+    duration = payload.duration_hours * 60
+    expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=duration)
+    assignment = Assignment(viewer_id=req.requester_id, camera_ids=[req.camera_id], expires_at=expires_at)
+    db.add(assignment)
+    db.commit()
+    db.refresh(assignment)
+    
+    log_event(db, "access_request_approved", actor_username=admin_user.username, details={"request_id": request_id})
+    return _as_assignment_out(assignment, db)
+
+
+@app.post("/api/v1/requests/{request_id}/reject", response_model=AccessRequestOut)
+def reject_request(
+    request_id: int,
+    admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+) -> AccessRequestOut:
+    req = db.get(AccessRequest, request_id)
+    if not req or req.status != AccessRequestStatus.pending:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid request")
+        
+    req.status = AccessRequestStatus.rejected
+    req.reviewed_by = admin_user.id
+    req.reviewed_at = datetime.now(UTC).replace(tzinfo=None)
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+    
+    log_event(db, "access_request_rejected", actor_username=admin_user.username, details={"request_id": request_id})
+    return _as_access_request_out(req, db)
+
