@@ -1,3 +1,9 @@
+---
+noteId: "ad07149061c511f1b5c859fd855165b1"
+tags: []
+
+---
+
 # Diagrams
 
 ## ER Diagram

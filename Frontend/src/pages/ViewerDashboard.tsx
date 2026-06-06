@@ -27,7 +27,7 @@ const buildAssignedPreview = (camera: Camera) => {
     if (!camera.source_url) {
       return previewPlaceholder("Admin has not set the IP camera URL");
     }
-    return <img src={getCameraStreamUrl(camera.id)} alt={`${camera.name} feed`} className="absolute inset-0 h-full w-full object-cover" />;
+    return <img src={getCameraStreamUrl(camera.id, camera.source_url)} alt={`${camera.name} feed`} className="absolute inset-0 h-full w-full object-cover" />;
   }
   if (camera.source_type === "admin_local") {
     return <AdminLocalPreview cameraId={camera.id} emptyMessage="Waiting for admin to start webcam stream" />;
@@ -135,7 +135,7 @@ const ViewerDashboard = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
               {myCameras.map((c) => {
                 const preview = c.source_type === "ip_mjpeg" && c.source_url
-                  ? <img src={getCameraStreamUrl(c.id)} alt={`${c.name} feed`} className="absolute inset-0 h-full w-full object-cover" />
+                  ? <img src={getCameraStreamUrl(c.id, c.source_url)} alt={`${c.name} feed`} className="absolute inset-0 h-full w-full object-cover" />
                   : c.source_type === "viewer_local"
                     ? <AdminLocalPreview cameraId={c.id} />
                     : null;
@@ -272,7 +272,7 @@ const ViewerDashboard = () => {
                 height="h-[420px]"
                 preview={"expiresIn" in expandedCamera ? buildAssignedPreview(expandedCamera) : (
                   expandedCamera.source_type === "ip_mjpeg" && expandedCamera.source_url
-                    ? <img src={getCameraStreamUrl(expandedCamera.id)} alt={`${expandedCamera.name} feed`} className="absolute inset-0 h-full w-full object-contain" />
+                    ? <img src={getCameraStreamUrl(expandedCamera.id, expandedCamera.source_url)} alt={`${expandedCamera.name} feed`} className="absolute inset-0 h-full w-full object-contain" />
                     : expandedCamera.source_type === "viewer_local"
                       ? <AdminLocalPreview cameraId={expandedCamera.id} />
                       : null

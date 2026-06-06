@@ -1,3 +1,9 @@
+---
+noteId: "acd9c30061c511f1b5c859fd855165b1"
+tags: []
+
+---
+
 # Zero-Trust Smart Surveillance Access System using PAKE Authentication
 
 Final year Network Security project for a residential apartment surveillance workflow.

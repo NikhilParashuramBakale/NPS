@@ -1,3 +1,9 @@
+---
+noteId: "ad073ba161c511f1b5c859fd855165b1"
+tags: []
+
+---
+
 # API Design
 
 All routes are available under `/api/v1`. Spec aliases such as `/auth/login`, `/requests`, `/audit-logs`, `/security-events`, and `/security-dashboard` are also exposed where required.

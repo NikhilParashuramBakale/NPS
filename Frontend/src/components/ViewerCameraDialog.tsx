@@ -35,10 +35,14 @@ export const ViewerCameraDialog = () => {
       toast.error("Enter the MJPEG URL");
       return;
     }
+    let finalUrl = sourceUrl.trim();
+    if (sourceType === "ip_mjpeg" && finalUrl && !finalUrl.startsWith("http://") && !finalUrl.startsWith("https://")) {
+      finalUrl = "http://" + finalUrl;
+    }
     const ok = await createViewerCamera({
       name: name.trim(),
       source_type: sourceType,
-      source_url: sourceType === "ip_mjpeg" ? sourceUrl.trim() : null,
+      source_url: sourceType === "ip_mjpeg" ? finalUrl : null,
       request_share: requestShare,
     });
     if (!ok) {

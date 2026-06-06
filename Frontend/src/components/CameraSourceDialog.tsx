@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -25,14 +25,25 @@ export const CameraSourceDialog = ({ camera }: Props) => {
     setSourceUrl(camera.source_url || "");
   };
 
+  useEffect(() => {
+    if (open) {
+      setSourceType(camera.source_type);
+      setSourceUrl(camera.source_url || "");
+    }
+  }, [open, camera.source_type, camera.source_url]);
+
   const submit = async () => {
     if (sourceType === "ip_mjpeg" && !sourceUrl) {
       toast.error("Enter the MJPEG URL for IP Webcam");
       return;
     }
+    let finalUrl = sourceUrl.trim();
+    if (sourceType === "ip_mjpeg" && finalUrl && !finalUrl.startsWith("http://") && !finalUrl.startsWith("https://")) {
+      finalUrl = "http://" + finalUrl;
+    }
     const ok = await updateCameraSource(camera.id, {
       source_type: sourceType,
-      source_url: sourceType === "ip_mjpeg" ? sourceUrl : null,
+      source_url: sourceType === "ip_mjpeg" ? finalUrl : null,
     });
     if (!ok) {
       toast.error("Could not update camera source");

@@ -135,7 +135,7 @@ const AdminDashboard = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {cameras.map((c) => {
               const preview = c.source_type === "ip_mjpeg" && c.source_url
-                ? <img src={getCameraStreamUrl(c.id)} alt={`${c.name} feed`} className="absolute inset-0 h-full w-full object-cover" />
+                ? <img src={getCameraStreamUrl(c.id, c.source_url)} alt={`${c.name} feed`} className="absolute inset-0 h-full w-full object-cover" />
                 : c.source_type === "admin_local" || c.source_type === "viewer_local"
                   ? <AdminLocalPreview cameraId={c.id} />
                   : null;
@@ -354,7 +354,7 @@ const AdminDashboard = () => {
                 status={expandedCamera.status}
                 height="h-[420px]"
                 preview={expandedCamera.source_type === "ip_mjpeg" && expandedCamera.source_url
-                  ? <img src={getCameraStreamUrl(expandedCamera.id)} alt={`${expandedCamera.name} feed`} className="absolute inset-0 h-full w-full object-contain" />
+                  ? <img src={getCameraStreamUrl(expandedCamera.id, expandedCamera.source_url)} alt={`${expandedCamera.name} feed`} className="absolute inset-0 h-full w-full object-contain" />
                   : expandedCamera.source_type === "admin_local" || expandedCamera.source_type === "viewer_local"
                     ? <AdminLocalPreview cameraId={expandedCamera.id} />
                     : null

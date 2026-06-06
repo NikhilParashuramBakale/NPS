@@ -10,12 +10,19 @@ export const setAuthToken = (token: string | null) => {
 
 export const getAuthToken = () => authToken;
 
-export const getCameraStreamUrl = (cameraId: number) => {
-  if (!authToken) {
-    return `${API_BASE_URL}/api/v1/cameras/${cameraId}/stream`;
+export const getCameraStreamUrl = (cameraId: number, sourceUrl?: string | null) => {
+  const params = new URLSearchParams();
+  if (authToken) params.append("token", authToken);
+  if (sourceUrl) {
+    let hash = 0;
+    for (let i = 0; i < sourceUrl.length; i++) {
+      hash = ((hash << 5) - hash) + sourceUrl.charCodeAt(i);
+      hash |= 0;
+    }
+    params.append("t", Math.abs(hash).toString());
   }
-  const token = encodeURIComponent(authToken);
-  return `${API_BASE_URL}/api/v1/cameras/${cameraId}/stream?token=${token}`;
+  const qs = params.toString();
+  return qs ? `${API_BASE_URL}/api/v1/cameras/${cameraId}/stream?${qs}` : `${API_BASE_URL}/api/v1/cameras/${cameraId}/stream`;
 };
 
 export const getCameraCapabilityStreamUrl = (cameraId: number, capabilityToken: string, nonce: string) => {

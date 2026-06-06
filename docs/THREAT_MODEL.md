@@ -1,3 +1,9 @@
+---
+noteId: "ad073ba261c511f1b5c859fd855165b1"
+tags: []
+
+---
+
 # Threat Model
 
 ## Assets
