@@ -26,7 +26,12 @@ erDiagram
     string name
     string location
     string status
+    string source_type
+    string source_url
     int owner_id
+    bool is_active
+    bool share_requested
+    bool share_approved
     datetime created_at
   }
   ACCESS_REQUESTS {
@@ -41,8 +46,10 @@ erDiagram
   }
   ASSIGNMENTS {
     string id
+    int viewer_id
     int user_id
     int camera_id
+    json camera_ids
     datetime expires_at
     int granted_by
     string status
@@ -65,11 +72,34 @@ erDiagram
   }
 ```
 
+## Admin Camera Setup
+
+```mermaid
+sequenceDiagram
+  participant Admin
+  participant UI
+  participant API
+  participant DB
+
+  Admin->>UI: Login
+  UI->>API: GET /cameras
+  API-->>UI: Admin Webcam + Admin IP Camera
+  UI-->>Admin: Setup banner for unconfigured cameras
+  Admin->>UI: Configure Admin Webcam as admin_local
+  UI->>API: PUT /admin/cameras/{id}
+  Admin->>UI: Start Stream
+  UI->>API: POST /admin/cameras/{id}/frame (repeated)
+  Admin->>UI: Configure Admin IP Camera URL
+  UI->>API: PUT /admin/cameras/{id}
+  UI->>API: GET /admin/cameras/{id}/probe
+```
+
 ## Access Request Sequence
 
 ```mermaid
 sequenceDiagram
   participant Resident
+  participant UI
   participant API
   participant Admin
   participant DB
@@ -78,6 +108,8 @@ sequenceDiagram
   Resident->>API: PAKE login
   API->>DB: verify PAKE verifier
   API-->>Resident: JWT identity token
+  Resident->>API: GET /cameras/requestable
+  API-->>Resident: Admin Webcam, Admin IP Camera
   Resident->>API: POST /requests
   API->>DB: create pending request
   API->>Security: REQUEST_CREATED
@@ -85,11 +117,16 @@ sequenceDiagram
   Admin->>API: POST /requests/{id}/approve
   API->>DB: create expiring assignment
   API->>Security: REQUEST_APPROVED + ACCESS_GRANTED
+  loop every 10s
+    Resident->>API: GET /assignments + GET /cameras
+    API-->>Resident: assigned camera visible
+  end
   Resident->>API: POST /capabilities
   API-->>Resident: camera-scoped capability token
   Resident->>API: validate capability + nonce
   API->>DB: store nonce
-  API-->>Resident: camera access accepted
+  Resident->>API: GET /cameras/{id}/frame or /stream
+  API-->>Resident: live preview
 ```
 
 ## Replay Detection Sequence
@@ -116,14 +153,16 @@ sequenceDiagram
 flowchart LR
   Browser["React Client"] -->|"PAKE messages"| Auth["FastAPI Auth"]
   Auth -->|"JWT identity only"| Browser
+  Browser -->|"GET /cameras/requestable"| RequestList["Requestable Camera List"]
   Browser -->|"Access request"| Workflow["Request Workflow"]
   Workflow -->|"approval"| Assignments["Temporary Assignments"]
+  Browser -->|"poll assignments"| Assignments
   Browser -->|"camera_id"| Capabilities["Capability Issuer"]
   Assignments --> Capabilities
   Capabilities -->|"camera-scoped token"| Browser
   Browser -->|"token + nonce"| Validator["Capability Validator"]
   Validator --> Nonces["Nonce Store"]
-  Validator --> Streams["Protected Camera Streams"]
+  Validator --> Frames["Frame Store / MJPEG Proxy"]
   Validator --> Events["Security Events"]
   Workflow --> Audit["Audit Logs"]
   Events --> Dashboard["Security Dashboard"]

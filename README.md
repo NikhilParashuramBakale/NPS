@@ -13,6 +13,17 @@ Final year Network Security project for a residential apartment surveillance wor
 
 Legacy demo users `viewer_a` and `viewer_b` are retained for backward compatibility.
 
+## Demo Cameras
+
+The admin account manages exactly two cameras (configured after login):
+
+| Camera | Setup |
+| --- | --- |
+| Admin Webcam | Set source to `admin_local`, then click **Start Stream** |
+| Admin IP Camera | Set source to `ip_mjpeg` and provide the MJPEG URL |
+
+Residents request access from the **Request Access** page, which lists admin cameras via `GET /api/v1/cameras/requestable`.
+
 ## Security Features
 
 - PAKE login flow using the existing SPAKE2 prototype bridge.

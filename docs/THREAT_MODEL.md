@@ -43,9 +43,20 @@
 - `UNAUTHORIZED_CAMERA_ACCESS`
 - `SECURITY_ALERT`
 
+## Camera Access Controls
+
+| Control | Purpose |
+| --- | --- |
+| `GET /cameras` filtering | Residents only receive owned or assigned cameras, not the full admin inventory. |
+| `GET /cameras/requestable` | Residents can discover admin cameras for requests without receiving stream access. |
+| Assignment expiry | Approved access is time-bounded and removed from active listings after expiry. |
+| Frame upload auth | Admin and viewer frame uploads require the correct role/ownership. |
+| MJPEG proxy auth | Stream endpoint checks JWT and active assignment before proxying camera URLs. |
+
 ## Residual Risks
 
 - Demo mode uses SQLite by default. Production deployment should use PostgreSQL with backups.
 - Stream transport security depends on deployment TLS termination.
 - PAKE bridge remains a prototype dependency and should be reviewed before production use.
 - Capability validation is demonstrated through the API and frontend camera-open flow; stream transport can be further hardened by requiring capability query parameters on every stream request.
+- Admin local webcam frames are stored in memory (`CAMERA_FRAMES`) and are lost on backend restart.
