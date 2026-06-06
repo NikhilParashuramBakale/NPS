@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { LogOut, Shield, Lock, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -9,7 +10,7 @@ import { CameraTile } from "@/components/CameraTile";
 import { AdminLocalPreview } from "@/components/AdminLocalPreview";
 import { ViewerCameraDialog } from "@/components/ViewerCameraDialog";
 import { ViewerLocalStreamer } from "@/components/ViewerLocalStreamer";
-import { getCameraStreamUrl } from "@/lib/api";
+import { getCameraStreamUrl, issueCapabilityToken, validateCapabilityToken } from "@/lib/api";
 import { toast } from "sonner";
 
 const ViewerDashboard = () => {
@@ -17,6 +18,7 @@ const ViewerDashboard = () => {
   const navigate = useNavigate();
   const prevCount = useRef(myAssignments.length);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [capabilityStatus, setCapabilityStatus] = useState<Record<number, string>>({});
 
   useEffect(() => {
     if (prevCount.current > 0 && myAssignments.length < prevCount.current) {
@@ -49,6 +51,21 @@ const ViewerDashboard = () => {
     if (assigned) return assigned;
     return myCameras.find((c) => c.id === expandedId) ?? null;
   }, [expandedId, assignedNonOwned, myCameras]);
+
+  const openCamera = async (cameraId: number, requiresCapability: boolean) => {
+    setExpandedId(cameraId);
+    if (!requiresCapability) return;
+    try {
+      const issued = await issueCapabilityToken(cameraId);
+      const nonce = crypto.randomUUID();
+      await validateCapabilityToken({ camera_id: cameraId, capability_token: issued.capability_token, nonce });
+      setCapabilityStatus((prev) => ({ ...prev, [cameraId]: "Protected capability validated" }));
+      toast.success("Capability token validated", { description: "Nonce accepted for this camera session." });
+    } catch {
+      setCapabilityStatus((prev) => ({ ...prev, [cameraId]: "Capability validation failed" }));
+      toast.error("Capability validation failed");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -152,8 +169,11 @@ const ViewerDashboard = () => {
             <h2 className="font-medium text-sm text-muted-foreground">
               Assigned Cameras ({assignedNonOwned.length})
             </h2>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Lock className="h-3.5 w-3.5" /> All streams encrypted
+            <div className="flex items-center gap-2">
+              <Button asChild size="sm" variant="outline"><Link to="/requests">Request Access</Link></Button>
+              <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground">
+                <Lock className="h-3.5 w-3.5" /> Encrypted Protected
+              </div>
             </div>
           </div>
           {assignedNonOwned.length === 0 ? (
@@ -181,7 +201,7 @@ const ViewerDashboard = () => {
                       status={c.status}
                       height="h-48"
                       preview={preview}
-                      onExpand={() => setExpandedId(c.id)}
+                      onExpand={() => void openCamera(c.id, true)}
                     />
                     <div className="p-4 space-y-3">
                       <div className="flex items-center justify-between">
@@ -206,6 +226,9 @@ const ViewerDashboard = () => {
                       <div className={`text-xs font-medium flex items-center gap-1.5 ${lowTime ? "text-warning" : "text-success"}`}>
                         <Lock className="h-3 w-3" /> {formatTime(c.expiresIn)}
                       </div>
+                      {capabilityStatus[c.id] && (
+                        <div className="text-xs text-primary">{capabilityStatus[c.id]}</div>
+                      )}
                     </div>
                   </div>
                 );

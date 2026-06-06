@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { LogOut, Shield, Camera as CamIcon, Users, X, UserPlus, Plus } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Activity, ClipboardCheck, LogOut, Shield, Camera as CamIcon, Users, X, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -12,7 +12,7 @@ import { UserDialog } from "@/components/UserDialog";
 import { CameraSourceDialog } from "@/components/CameraSourceDialog";
 import { AdminLocalPreview } from "@/components/AdminLocalPreview";
 import { AdminLocalStreamer } from "@/components/AdminLocalStreamer";
-import { getCameraStreamUrl } from "@/lib/api";
+import { approveAccessRequest, fetchPendingRequests, getCameraStreamUrl, rejectAccessRequest, type AccessRequest } from "@/lib/api";
 import { toast } from "sonner";
 
 const AdminDashboard = () => {
@@ -20,6 +20,13 @@ const AdminDashboard = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<"assignments" | "users" | "viewer-cameras">("assignments");
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [pendingRequests, setPendingRequests] = useState<AccessRequest[]>([]);
+
+  const refreshRequests = () => fetchPendingRequests().then(setPendingRequests).catch(() => setPendingRequests([]));
+
+  useEffect(() => {
+    void refreshRequests();
+  }, []);
 
   const expandedCamera = useMemo(
     () => (expandedId === null ? null : cameras.find((c) => c.id === expandedId) ?? null),
@@ -97,6 +104,11 @@ const AdminDashboard = () => {
         {/* Center: Grid */}
         <main className="rounded-lg border border-border bg-card p-4">
           <h2 className="font-medium text-sm mb-3">Live Feeds</h2>
+          <div className="mb-4 flex flex-wrap gap-2">
+            <Button asChild size="sm" variant="outline"><Link to="/security-dashboard"><Activity className="h-4 w-4 mr-1" />Security Dashboard</Link></Button>
+            <Button asChild size="sm" variant="outline"><Link to="/audit-logs"><ClipboardCheck className="h-4 w-4 mr-1" />Audit Logs</Link></Button>
+            <Button asChild size="sm" variant="outline"><Link to="/security-events">Security Events</Link></Button>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {cameras.map((c) => {
               const preview = c.source_type === "ip_mjpeg" && c.source_url
@@ -137,6 +149,40 @@ const AdminDashboard = () => {
             
             <TabsContent value="assignments" className="flex-1 overflow-auto mt-0">
               <div className="space-y-2">
+                {pendingRequests.length > 0 && (
+                  <div className="mb-3 space-y-2 rounded-md border border-warning/30 bg-warning/5 p-3">
+                    <div className="text-xs font-semibold text-warning">Pending access requests</div>
+                    {pendingRequests.map((request) => (
+                      <div key={request.id} className="rounded-md border border-border bg-card p-2">
+                        <div className="text-sm font-medium">{request.requester_name}{" -> "}{request.camera_name}</div>
+                        <p className="mt-1 text-xs text-muted-foreground">{request.reason}</p>
+                        <div className="mt-2 flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={async () => {
+                              await approveAccessRequest(request.id, 24);
+                              toast.success("Request approved", { description: "Temporary access granted for 24 hours." });
+                              await refreshRequests();
+                            }}
+                          >
+                            Approve 24h
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={async () => {
+                              await rejectAccessRequest(request.id, "Rejected by administrator");
+                              toast.error("Request rejected");
+                              await refreshRequests();
+                            }}
+                          >
+                            Reject
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {assignments.length === 0 && (
                   <p className="text-xs text-muted-foreground text-center py-6">
                     No active assignments

@@ -19,7 +19,7 @@ import {
 } from "@/lib/api";
 import { buildPakeClient } from "@/lib/pake";
 
-export type Role = "admin" | "viewer";
+export type Role = "admin" | "viewer" | "resident" | "security_guard";
 
 export interface User {
   id: number;
@@ -30,6 +30,7 @@ export interface User {
 export interface Camera {
   id: number;
   name: string;
+  location: string;
   status: "online" | "offline";
   source_type: "unconfigured" | "ip_mjpeg" | "admin_local" | "viewer_local";
   source_url: string | null;
@@ -45,6 +46,7 @@ export interface Assignment {
   viewerName: string;
   cameraIds: number[];
   expiresIn: number; // seconds
+  status: string;
 }
 
 export type PakeStepData = {
@@ -60,7 +62,7 @@ interface AppCtx {
   cameras: Camera[];
   assignments: Assignment[];
   viewers: User[];
-  addAssignment: (a: Omit<Assignment, "id" | "expiresIn"> & { durationMinutes: number }) => Promise<boolean>;
+  addAssignment: (a: Omit<Assignment, "id" | "expiresIn" | "status"> & { durationMinutes: number }) => Promise<boolean>;
   revokeAssignment: (id: string) => Promise<boolean>;
   createUser: (payload: { username: string; password: string; role: Role }) => Promise<boolean>;
   updateCameraSource: (cameraId: number, payload: { source_type: Camera["source_type"]; source_url: string | null }) => Promise<boolean>;
@@ -101,7 +103,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const syncDashboardData = async (role?: Role) => {
     const [cameraData, assignmentData] = await Promise.all([fetchCameras(), fetchAssignments()]);
     setCameras(cameraData);
-    const viewerData = role === "admin" ? await fetchUsers("viewer") : [];
+    const viewerData = role === "admin" ? [...await fetchUsers("viewer"), ...await fetchUsers("resident"), ...await fetchUsers("security_guard")] : [];
     setViewers(viewerData);
     setAssignments(
       assignmentData
@@ -111,6 +113,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           viewerName: prettyViewerName(a.viewer_name, viewerData),
           cameraIds: a.camera_ids,
           expiresIn: a.expires_in,
+          status: a.status,
         }))
         .filter((a) => a.expiresIn > 0)
     );
@@ -322,7 +325,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const myAssignments = useMemo(() =>
-    user?.role === "viewer"
+    user?.role === "viewer" || user?.role === "resident"
       ? assignments.filter((a) => a.viewerId === user.id)
       : [],
     [assignments, user]

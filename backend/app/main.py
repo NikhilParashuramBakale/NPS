@@ -313,6 +313,10 @@ def _is_resident_role(role: UserRole) -> bool:
     return role in {UserRole.resident, UserRole.viewer}
 
 
+def _uses_temporary_access(role: UserRole) -> bool:
+    return role in {UserRole.resident, UserRole.viewer, UserRole.security_guard}
+
+
 def _role_matches(user: User, requested_role: str) -> bool:
     return _role_value(user.role.value) == _role_value(requested_role)
 
@@ -534,7 +538,7 @@ def logout(current_user: User = Depends(get_current_user), db: Session = Depends
 @app.get("/api/v1/cameras", response_model=list[CameraOut])
 def list_cameras(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[CameraOut]:
     prune_expired_assignments(db)
-    if _is_resident_role(current_user.role):
+    if _uses_temporary_access(current_user.role):
         now = datetime.now(UTC).replace(tzinfo=None)
         assignments = db.scalars(
             select(Assignment).where(Assignment.viewer_id == current_user.id, Assignment.expires_at > now)
@@ -687,7 +691,7 @@ def get_camera_frame(
 
     is_owner = camera.owner_id == current_user.id
 
-    if _is_resident_role(current_user.role) and not is_owner:
+    if _uses_temporary_access(current_user.role) and not is_owner:
         now = datetime.now(UTC).replace(tzinfo=None)
         assignments = db.scalars(
             select(Assignment).where(
@@ -724,7 +728,7 @@ async def stream_camera(
 
     is_owner = camera.owner_id == current_user.id
 
-    if _is_resident_role(current_user.role) and not is_owner:
+    if _uses_temporary_access(current_user.role) and not is_owner:
         now = datetime.now(UTC).replace(tzinfo=None)
         assignments = db.scalars(
             select(Assignment).where(
@@ -1004,7 +1008,7 @@ def list_assignments(current_user: User = Depends(get_current_user), db: Session
     prune_expired_assignments(db)
     now = datetime.now(UTC).replace(tzinfo=None)
     stmt = select(Assignment).where(Assignment.expires_at > now, Assignment.status == "active")
-    if _is_resident_role(current_user.role):
+    if _uses_temporary_access(current_user.role):
         stmt = stmt.where(Assignment.viewer_id == current_user.id)
 
     assignments = db.scalars(stmt.order_by(Assignment.expires_at.asc())).all()
@@ -1020,8 +1024,8 @@ def create_assignment(
 ) -> AssignmentOut:
     prune_expired_assignments(db)
     viewer = db.get(User, payload.viewer_id)
-    if not viewer or not _is_resident_role(viewer.role):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="viewer_id must be a resident user")
+    if not viewer or not _uses_temporary_access(viewer.role):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="viewer_id must be a resident or guard user")
 
     cameras = db.scalars(select(Camera).where(Camera.id.in_(payload.camera_ids))).all()
     if len(cameras) != len(set(payload.camera_ids)):

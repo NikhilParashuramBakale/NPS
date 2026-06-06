@@ -18,6 +18,12 @@ export const getCameraStreamUrl = (cameraId: number) => {
   return `${API_BASE_URL}/api/v1/cameras/${cameraId}/stream?token=${token}`;
 };
 
+export const getCameraCapabilityStreamUrl = (cameraId: number, capabilityToken: string, nonce: string) => {
+  const token = encodeURIComponent(capabilityToken);
+  const encodedNonce = encodeURIComponent(nonce);
+  return `${API_BASE_URL}/api/v1/cameras/${cameraId}/stream?capability_token=${token}&nonce=${encodedNonce}`;
+};
+
 type LoginPayload = {
   username: string;
   password: string;
@@ -70,6 +76,7 @@ type PakeUpgradeResponse = {
 export type ApiCamera = {
   id: number;
   name: string;
+  location: string;
   status: "online" | "offline";
   source_type: "unconfigured" | "ip_mjpeg" | "admin_local" | "viewer_local";
   source_url: string | null;
@@ -84,6 +91,9 @@ export type ApiAssignment = {
   viewer_id: number;
   viewer_name: string;
   camera_ids: number[];
+  user_id: number | null;
+  camera_id: number | null;
+  status: string;
   expires_in: number;
   expires_at: string;
 };
@@ -91,10 +101,47 @@ export type ApiAssignment = {
 export type SecurityEvent = {
   id: string;
   event_type: string;
+  severity: "low" | "medium" | "high" | "critical";
+  category: string;
+  description: string;
   actor_username: string | null;
   target_username: string | null;
   details: Record<string, unknown>;
   created_at: string;
+};
+
+export type AuditLog = {
+  id: string;
+  event_type: string;
+  actor_id: number | null;
+  target_id: string | null;
+  description: string;
+  created_at: string;
+};
+
+export type AccessRequest = {
+  id: number;
+  requester_id: number;
+  requester_name: string;
+  camera_id: number;
+  camera_name: string;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  requested_at: string;
+  reviewed_at: string | null;
+  reviewed_by: number | null;
+};
+
+export type SecurityDashboard = {
+  authentication_success_count: number;
+  authentication_failure_count: number;
+  pending_requests: number;
+  approved_requests: number;
+  rejected_requests: number;
+  expired_assignments: number;
+  revoked_assignments: number;
+  recent_security_events: SecurityEvent[];
+  recent_audit_logs: AuditLog[];
 };
 
 export type ApiUser = {
@@ -122,6 +169,7 @@ type UpdateCameraPayload = {
 
 type CreateCameraPayload = {
   name: string;
+  location?: string;
   source_type: "ip_mjpeg" | "viewer_local";
   source_url: string | null;
   request_share: boolean;
@@ -290,3 +338,41 @@ export const deleteAssignment = (assignmentId: string) =>
   });
 
 export const fetchSecurityEvents = () => request<SecurityEvent[]>("/api/v1/security/events");
+
+export const fetchAuditLogs = () => request<AuditLog[]>("/api/v1/audit-logs");
+
+export const fetchSecurityDashboard = () => request<SecurityDashboard>("/api/v1/security-dashboard");
+
+export const fetchPendingRequests = () => request<AccessRequest[]>("/api/v1/requests/pending");
+
+export const fetchMyRequests = () => request<AccessRequest[]>("/api/v1/requests/my");
+
+export const createAccessRequest = (payload: { camera_id: number; reason: string }) =>
+  request<AccessRequest>("/api/v1/requests", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const approveAccessRequest = (requestId: number, durationHours: number) =>
+  request<ApiAssignment>(`/api/v1/requests/${requestId}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ duration_hours: durationHours }),
+  });
+
+export const rejectAccessRequest = (requestId: number, note?: string) =>
+  request<AccessRequest>(`/api/v1/requests/${requestId}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
+
+export const issueCapabilityToken = (cameraId: number) =>
+  request<{ capability_token: string; camera_id: number; permissions: string[]; expires_at: string }>("/api/v1/capabilities", {
+    method: "POST",
+    body: JSON.stringify({ camera_id: cameraId, permissions: ["VIEW"] }),
+  });
+
+export const validateCapabilityToken = (payload: { camera_id: number; capability_token: string; nonce: string }) =>
+  request<{ status: string; camera_id: number; permissions: string[] }>("/api/v1/capabilities/validate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });

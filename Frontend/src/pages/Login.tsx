@@ -30,7 +30,7 @@ const Login = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState<null | "admin" | "viewer">(null);
+  const [loading, setLoading] = useState<null | "admin" | "viewer" | "resident" | "security_guard">(null);
   const [pakeSteps, setPakeSteps] = useState<PakeStep[]>(INITIAL_STEPS);
   const [showViz, setShowViz] = useState(false);
 
@@ -56,7 +56,7 @@ const Login = () => {
     updateStep(stepData.step, "active", stepData.data);
   };
 
-  const handleLogin = (role: "admin" | "viewer") => {
+  const handleLogin = (role: "admin" | "viewer" | "resident" | "security_guard") => {
     setError("");
     if (!username || !password) {
       setError("Please enter username and password");
@@ -138,7 +138,7 @@ const Login = () => {
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4">
               <Button
                 onClick={() => handleLogin("admin")}
                 disabled={loading !== null}
@@ -147,12 +147,20 @@ const Login = () => {
                 {loading === "admin" ? <Loader2 className="h-5 w-5 animate-spin" /> : "Admin Access"}
               </Button>
               <Button
-                onClick={() => handleLogin("viewer")}
+                onClick={() => handleLogin("resident")}
                 disabled={loading !== null}
                 variant="outline"
                 className="border-slate-200 text-slate-700 font-bold h-12 hover:bg-slate-50 rounded-lg"
               >
-                {loading === "viewer" ? <Loader2 className="h-5 w-5 animate-spin" /> : "Viewer Access"}
+                {loading === "resident" ? <Loader2 className="h-5 w-5 animate-spin" /> : "Resident"}
+              </Button>
+              <Button
+                onClick={() => handleLogin("security_guard")}
+                disabled={loading !== null}
+                variant="outline"
+                className="border-slate-200 text-slate-700 font-bold h-12 hover:bg-slate-50 rounded-lg"
+              >
+                {loading === "security_guard" ? <Loader2 className="h-5 w-5 animate-spin" /> : "Guard"}
               </Button>
             </div>
           </div>
