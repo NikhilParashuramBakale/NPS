@@ -66,5 +66,33 @@ def create_access_token(subject: str, role: str) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
+def create_capability_token(
+    *,
+    user_id: int,
+    camera_id: int,
+    assignment_id: str,
+    permissions: list[str],
+    expires_at: datetime,
+) -> str:
+    payload = {
+        "typ": "capability",
+        "sub": str(user_id),
+        "camera_id": camera_id,
+        "assignment_id": assignment_id,
+        "permissions": permissions,
+        "jti": base64.urlsafe_b64encode(os.urandom(18)).decode().rstrip("="),
+        "iat": int(datetime.now(UTC).timestamp()),
+        "exp": int(expires_at.replace(tzinfo=UTC).timestamp() if expires_at.tzinfo is None else expires_at.timestamp()),
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
 def decode_access_token(token: str) -> dict:
     return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+
+
+def decode_capability_token(token: str) -> dict:
+    payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    if payload.get("typ") != "capability":
+        raise ValueError("Not a capability token")
+    return payload

@@ -19,7 +19,7 @@ def test_failed_login_creates_login_failure_event(client):
 
     assert events_response.status_code == 200
     events = events_response.json()
-    assert any(event["event_type"] == "login_failure" for event in events)
+    assert any(event["event_type"] == "LOGIN_FAILURE" for event in events)
 
 
 def test_assignment_create_and_revoke_are_logged(client):
@@ -45,7 +45,7 @@ def test_assignment_create_and_revoke_are_logged(client):
 
     event_types = [event["event_type"] for event in events]
     assert "assignment_created" in event_types
-    assert "assignment_revoked" in event_types
+    assert "ACCESS_REVOKED" in event_types
 
 
 def test_viewer_sees_only_relevant_events(client):
