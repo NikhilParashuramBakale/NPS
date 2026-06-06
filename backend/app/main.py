@@ -559,6 +559,22 @@ def list_cameras(current_user: User = Depends(get_current_user), db: Session = D
         return [_as_camera_out(camera) for camera in cameras]
 
 
+@app.get("/api/v1/cameras/requestable", response_model=list[CameraOut])
+def list_requestable_cameras(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[CameraOut]:
+    if not _uses_temporary_access(current_user.role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Resident role required")
+
+    cameras = db.scalars(
+        select(Camera)
+        .where(Camera.owner_id.is_(None), Camera.is_active.is_(True))
+        .order_by(Camera.id)
+    ).all()
+    return [_as_camera_out(camera) for camera in cameras]
+
+
 @app.post("/api/v1/cameras", response_model=CameraOut)
 def create_viewer_camera(
     payload: CameraCreate,

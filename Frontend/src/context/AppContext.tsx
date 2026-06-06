@@ -70,6 +70,7 @@ interface AppCtx {
   createViewerCamera: (payload: { name: string; source_type: "ip_mjpeg" | "viewer_local"; source_url: string | null; request_share: boolean }) => Promise<boolean>;
   updateViewerCamera: (cameraId: number, payload: { source_type: "ip_mjpeg" | "viewer_local"; source_url: string | null }) => Promise<boolean>;
   requestCameraShare: (cameraId: number) => Promise<boolean>;
+  refreshDashboard: () => Promise<void>;
   myAssignments: Assignment[];
 }
 
@@ -118,6 +119,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .filter((a) => a.expiresIn > 0)
     );
   };
+
+  useEffect(() => {
+    if (!user || user.role === "admin") return;
+
+    const poll = () => {
+      void syncDashboardData(user.role);
+    };
+    const timer = window.setInterval(poll, 10_000);
+    return () => window.clearInterval(timer);
+  }, [user?.id, user?.role]);
 
   useEffect(() => {
     const restoreSession = async () => {
@@ -324,8 +335,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const refreshDashboard = async () => {
+    await syncDashboardData(user?.role);
+  };
+
   const myAssignments = useMemo(() =>
-    user?.role === "viewer" || user?.role === "resident"
+    user?.role === "viewer" || user?.role === "resident" || user?.role === "security_guard"
       ? assignments.filter((a) => a.viewerId === user.id)
       : [],
     [assignments, user]
@@ -349,6 +364,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         createViewerCamera,
         updateViewerCamera,
         requestCameraShare,
+        refreshDashboard,
         myAssignments,
       }}
     >

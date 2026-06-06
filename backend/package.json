@@ -6,10 +6,14 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["pake", "authentication"],
+  "keywords": [
+    "pake",
+    "authentication"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "bn.js": "^5.2.3",
     "spake2": "^1.0.0"
   }
 }

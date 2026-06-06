@@ -3,9 +3,10 @@ import { API_BASE_URL, getAuthToken } from "@/lib/api";
 
 interface Props {
   cameraId: number;
+  emptyMessage?: string;
 }
 
-export const AdminLocalPreview = ({ cameraId }: Props) => {
+export const AdminLocalPreview = ({ cameraId, emptyMessage = "No frame available yet." }: Props) => {
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,7 +22,7 @@ export const AdminLocalPreview = ({ cameraId }: Props) => {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!response.ok) {
-          if (active) setError("No frame available yet.");
+          if (active) setError(emptyMessage);
           return;
         }
         const blob = await response.blob();
@@ -45,10 +46,14 @@ export const AdminLocalPreview = ({ cameraId }: Props) => {
       if (timer) window.clearInterval(timer);
       if (currentUrl) URL.revokeObjectURL(currentUrl);
     };
-  }, [cameraId]);
+  }, [cameraId, emptyMessage]);
 
   if (!frameUrl) {
-    return error ? <div className="text-xs text-muted-foreground">{error}</div> : null;
+    return error ? (
+      <div className="absolute inset-0 flex items-center justify-center bg-secondary/30 p-4 text-center text-xs text-muted-foreground">
+        {error}
+      </div>
+    ) : null;
   }
 
   return <img src={frameUrl} alt="Admin local feed" className="absolute inset-0 h-full w-full object-cover" />;

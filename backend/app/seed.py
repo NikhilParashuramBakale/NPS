@@ -45,10 +45,8 @@ def seed_data(db: Session) -> None:
     ]
 
     cameras = [
-        Camera(name="Parking Camera", location="Basement parking", status=CameraStatus.online, source_type=CameraSourceType.unconfigured),
-        Camera(name="Gate Camera", location="Main gate", status=CameraStatus.online, source_type=CameraSourceType.unconfigured),
-        Camera(name="Lobby Camera", location="Tower A lobby", status=CameraStatus.online, source_type=CameraSourceType.unconfigured),
-        Camera(name="Elevator Camera", location="Tower A elevator", status=CameraStatus.offline, source_type=CameraSourceType.unconfigured),
+        Camera(name="Admin Webcam", location="Admin workstation", status=CameraStatus.online, source_type=CameraSourceType.unconfigured),
+        Camera(name="Admin IP Camera", location="Network camera", status=CameraStatus.online, source_type=CameraSourceType.unconfigured),
     ]
 
     db.add_all(users + cameras)
@@ -57,14 +55,14 @@ def seed_data(db: Session) -> None:
     admin = db.scalar(select(User).where(User.username == "admin_user"))
     resident_a = db.scalar(select(User).where(User.username == "resident_a"))
     resident_b = db.scalar(select(User).where(User.username == "resident_b"))
-    parking = db.scalar(select(Camera).where(Camera.name == "Parking Camera"))
-    gate = db.scalar(select(Camera).where(Camera.name == "Gate Camera"))
+    admin_webcam = db.scalar(select(Camera).where(Camera.name == "Admin Webcam"))
+    admin_ip = db.scalar(select(Camera).where(Camera.name == "Admin IP Camera"))
     now = datetime.now(UTC).replace(tzinfo=None)
 
-    if admin and resident_a and resident_b and parking and gate:
+    if admin and resident_a and resident_b and admin_webcam and admin_ip:
         approved_request = AccessRequest(
             requester_id=resident_a.id,
-            camera_id=parking.id,
+            camera_id=admin_webcam.id,
             reason="My bicycle was stolen from the parking area.",
             status=AccessRequestStatus.approved,
             requested_at=now - timedelta(hours=3),
@@ -73,7 +71,7 @@ def seed_data(db: Session) -> None:
         )
         pending_request = AccessRequest(
             requester_id=resident_b.id,
-            camera_id=gate.id,
+            camera_id=admin_ip.id,
             reason="Vehicle was scratched near the entry gate.",
             status=AccessRequestStatus.pending,
             requested_at=now - timedelta(minutes=45),
@@ -81,8 +79,8 @@ def seed_data(db: Session) -> None:
         assignment = Assignment(
             viewer_id=resident_a.id,
             user_id=resident_a.id,
-            camera_id=parking.id,
-            camera_ids=[parking.id],
+            camera_id=admin_webcam.id,
+            camera_ids=[admin_webcam.id],
             expires_at=now + timedelta(hours=22),
             granted_by=admin.id,
             status="active",
@@ -96,10 +94,10 @@ def seed_data(db: Session) -> None:
                     event_type="ACCESS_GRANTED",
                     severity="low",
                     category="authorization",
-                    description="Demo temporary access granted for Parking Camera.",
+                    description="Demo temporary access granted for Admin Webcam.",
                     actor_username=admin.username,
                     target_username=resident_a.username,
-                    details={"camera_id": parking.id, "assignment_id": assignment.id},
+                    details={"camera_id": admin_webcam.id, "assignment_id": assignment.id},
                 ),
                 SecurityEvent(
                     event_type="SECURITY_ALERT",
@@ -108,13 +106,13 @@ def seed_data(db: Session) -> None:
                     description="Demo alert: suspicious activity near parking area.",
                     actor_username="system",
                     target_username=resident_a.username,
-                    details={"camera_id": parking.id},
+                    details={"camera_id": admin_webcam.id},
                 ),
                 AuditLog(
                     event_type="ACCESS_GRANTED",
                     actor_id=admin.id,
                     target_id=assignment.id,
-                    description="Seeded demo grant for resident_a to Parking Camera.",
+                    description="Seeded demo grant for resident_a to Admin Webcam.",
                 ),
             ]
         )

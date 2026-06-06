@@ -1,29 +1,44 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Clock, Send } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { createAccessRequest, fetchMyRequests, type AccessRequest } from "@/lib/api";
-import { useApp } from "@/context/AppContext";
+import { createAccessRequest, fetchMyRequests, fetchRequestableCameras, type AccessRequest, type ApiCamera } from "@/lib/api";
 import { toast } from "sonner";
 
 const RequestHistory = () => {
-  const { cameras } = useApp();
   const [requests, setRequests] = useState<AccessRequest[]>([]);
-  const [cameraId, setCameraId] = useState<number | null>(null);
+  const [requestableCameras, setRequestableCameras] = useState<ApiCamera[]>([]);
+  const [cameraId, setCameraId] = useState<string>("");
   const [reason, setReason] = useState("My bicycle was stolen from the parking area.");
 
   const refresh = () => fetchMyRequests().then(setRequests);
 
+  const loadRequestableCameras = () =>
+    fetchRequestableCameras()
+      .then((cameras) => {
+        setRequestableCameras(cameras);
+        if (cameras.length > 0) {
+          setCameraId((prev) => (prev && cameras.some((c) => String(c.id) === prev) ? prev : String(cameras[0].id)));
+        } else {
+          setCameraId("");
+        }
+      })
+      .catch(() => {
+        setRequestableCameras([]);
+        setCameraId("");
+      });
+
   useEffect(() => {
     void refresh();
+    void loadRequestableCameras();
   }, []);
 
-  const requestableCameras = useMemo(() => cameras.filter((camera) => camera.is_active), [cameras]);
-
   const submit = async () => {
-    const selected = cameraId ?? requestableCameras[0]?.id;
+    const selected = Number(cameraId);
     if (!selected || reason.trim().length < 10) {
       toast.error("Select a camera and enter a clear reason");
       return;
@@ -48,17 +63,27 @@ const RequestHistory = () => {
 
         <section className="rounded-md border border-border bg-card p-4 space-y-3">
           <div className="text-sm font-medium">Create Access Request</div>
-          <select
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-            value={cameraId ?? requestableCameras[0]?.id ?? ""}
-            onChange={(event) => setCameraId(Number(event.target.value))}
-          >
-            {requestableCameras.map((camera) => (
-              <option key={camera.id} value={camera.id}>{camera.name} - {camera.location}</option>
-            ))}
-          </select>
+          {requestableCameras.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No admin cameras are available to request right now.</p>
+          ) : (
+            <div className="space-y-1.5">
+              <Label>Camera</Label>
+              <Select value={cameraId} onValueChange={setCameraId}>
+                <SelectTrigger><SelectValue placeholder="Select a camera" /></SelectTrigger>
+                <SelectContent>
+                  {requestableCameras.map((camera) => (
+                    <SelectItem key={camera.id} value={String(camera.id)}>
+                      {camera.name} — {camera.location}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <Textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={4} />
-          <Button onClick={submit}><Send className="h-4 w-4 mr-1" />Submit Request</Button>
+          <Button onClick={submit} disabled={requestableCameras.length === 0}>
+            <Send className="h-4 w-4 mr-1" />Submit Request
+          </Button>
         </section>
 
         <section className="rounded-md border border-border bg-card">

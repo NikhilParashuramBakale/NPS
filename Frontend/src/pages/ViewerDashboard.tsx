@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { LogOut, Shield, Lock, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useApp, formatTime } from "@/context/AppContext";
+import { useApp, formatTime, type Camera } from "@/context/AppContext";
 import { SecurityBar } from "@/components/SecurityBar";
 import { CameraTile } from "@/components/CameraTile";
 import { AdminLocalPreview } from "@/components/AdminLocalPreview";
@@ -12,6 +12,31 @@ import { ViewerCameraDialog } from "@/components/ViewerCameraDialog";
 import { ViewerLocalStreamer } from "@/components/ViewerLocalStreamer";
 import { getCameraStreamUrl, issueCapabilityToken, validateCapabilityToken } from "@/lib/api";
 import { toast } from "sonner";
+
+const previewPlaceholder = (message: string) => (
+  <div className="absolute inset-0 flex items-center justify-center bg-secondary/30 p-4 text-center text-xs text-muted-foreground">
+    {message}
+  </div>
+);
+
+const buildAssignedPreview = (camera: Camera) => {
+  if (camera.source_type === "unconfigured") {
+    return previewPlaceholder("Admin has not configured this camera yet");
+  }
+  if (camera.source_type === "ip_mjpeg") {
+    if (!camera.source_url) {
+      return previewPlaceholder("Admin has not set the IP camera URL");
+    }
+    return <img src={getCameraStreamUrl(camera.id)} alt={`${camera.name} feed`} className="absolute inset-0 h-full w-full object-cover" />;
+  }
+  if (camera.source_type === "admin_local") {
+    return <AdminLocalPreview cameraId={camera.id} emptyMessage="Waiting for admin to start webcam stream" />;
+  }
+  if (camera.source_type === "viewer_local") {
+    return <AdminLocalPreview cameraId={camera.id} emptyMessage="Waiting for camera owner to start streaming" />;
+  }
+  return null;
+};
 
 const ViewerDashboard = () => {
   const { user, logout, cameras, myAssignments, requestCameraShare } = useApp();
@@ -23,6 +48,8 @@ const ViewerDashboard = () => {
   useEffect(() => {
     if (prevCount.current > 0 && myAssignments.length < prevCount.current) {
       toast.error("Session expired", { description: "Access to a camera has ended" });
+    } else if (prevCount.current < myAssignments.length) {
+      toast.success("Camera access granted", { description: "A new camera assignment is now available" });
     }
     prevCount.current = myAssignments.length;
   }, [myAssignments.length]);
@@ -184,13 +211,7 @@ const ViewerDashboard = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
               {assignedNonOwned.map((c) => {
                 const lowTime = c.expiresIn < 60;
-                const preview = c.source_type === "ip_mjpeg" && c.source_url
-                  ? <img src={getCameraStreamUrl(c.id)} alt={`${c.name} feed`} className="absolute inset-0 h-full w-full object-cover" />
-                  : c.source_type === "admin_local"
-                    ? <AdminLocalPreview cameraId={c.id} />
-                    : c.source_type === "viewer_local"
-                      ? <AdminLocalPreview cameraId={c.id} />
-                    : null;
+                const preview = buildAssignedPreview(c);
                 return (
                   <div
                     key={`${c.assignmentId}-${c.id}`}
@@ -249,12 +270,13 @@ const ViewerDashboard = () => {
                 name={expandedCamera.name}
                 status={expandedCamera.status}
                 height="h-[420px]"
-                preview={expandedCamera.source_type === "ip_mjpeg" && expandedCamera.source_url
-                  ? <img src={getCameraStreamUrl(expandedCamera.id)} alt={`${expandedCamera.name} feed`} className="absolute inset-0 h-full w-full object-contain" />
-                  : expandedCamera.source_type === "admin_local" || expandedCamera.source_type === "viewer_local"
-                    ? <AdminLocalPreview cameraId={expandedCamera.id} />
-                    : null
-                }
+                preview={"expiresIn" in expandedCamera ? buildAssignedPreview(expandedCamera) : (
+                  expandedCamera.source_type === "ip_mjpeg" && expandedCamera.source_url
+                    ? <img src={getCameraStreamUrl(expandedCamera.id)} alt={`${expandedCamera.name} feed`} className="absolute inset-0 h-full w-full object-contain" />
+                    : expandedCamera.source_type === "viewer_local"
+                      ? <AdminLocalPreview cameraId={expandedCamera.id} />
+                      : null
+                )}
               />
               <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                 {expandedCamera.status === "online" && (

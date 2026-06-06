@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Activity, ClipboardCheck, LogOut, Shield, Camera as CamIcon, Users, X, UserPlus } from "lucide-react";
+import { Activity, ClipboardCheck, LogOut, Shield, Camera as CamIcon, Users, X, UserPlus, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -16,7 +16,7 @@ import { approveAccessRequest, fetchPendingRequests, getCameraStreamUrl, rejectA
 import { toast } from "sonner";
 
 const AdminDashboard = () => {
-  const { user, logout, cameras, assignments, revokeAssignment, viewers, updateCameraAccess } = useApp();
+  const { user, logout, cameras, assignments, revokeAssignment, viewers, updateCameraAccess, refreshDashboard } = useApp();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<"assignments" | "users" | "viewer-cameras">("assignments");
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -48,6 +48,8 @@ const AdminDashboard = () => {
     toast.error("Access revoked", { description: `${name}'s access was revoked` });
   };
 
+  const adminCameras = cameras.filter((c) => c.owner_id === null);
+  const unconfiguredAdminCameras = adminCameras.filter((c) => c.source_type === "unconfigured");
   const viewerCameras = cameras.filter((c) => c.owner_id !== null);
   const viewerNameFor = (id: number | null) => viewers.find((v) => v.id === id)?.username ?? "Viewer";
 
@@ -66,6 +68,27 @@ const AdminDashboard = () => {
           <LogOut className="h-4 w-4 mr-1" /> Logout
         </Button>
       </header>
+
+      {unconfiguredAdminCameras.length > 0 && (
+        <div className="mx-4 sm:mx-6 mt-4 rounded-xl border border-warning/40 bg-warning/10 p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-warning mt-0.5 shrink-0" />
+            <div className="space-y-2 flex-1">
+              <div>
+                <h2 className="font-semibold text-sm">Configure your cameras</h2>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Set up your Admin Webcam and Admin IP Camera so viewers can request and watch live feeds.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {unconfiguredAdminCameras.map((camera) => (
+                  <CameraSourceDialog key={camera.id} camera={camera} />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid flex-1 grid-cols-1 lg:grid-cols-[320px_1fr_340px] gap-5 p-4 sm:p-6 bg-secondary/10">
         {/* Left: Cameras */}
@@ -162,7 +185,7 @@ const AdminDashboard = () => {
                             onClick={async () => {
                               await approveAccessRequest(request.id, 24);
                               toast.success("Request approved", { description: "Temporary access granted for 24 hours." });
-                              await refreshRequests();
+                              await Promise.all([refreshRequests(), refreshDashboard()]);
                             }}
                           >
                             Approve 24h
@@ -173,7 +196,7 @@ const AdminDashboard = () => {
                             onClick={async () => {
                               await rejectAccessRequest(request.id, "Rejected by administrator");
                               toast.error("Request rejected");
-                              await refreshRequests();
+                              await Promise.all([refreshRequests(), refreshDashboard()]);
                             }}
                           >
                             Reject

@@ -233,6 +233,8 @@ export const fetchMe = () => request<User>("/api/v1/auth/me");
 
 export const fetchCameras = () => request<ApiCamera[]>("/api/v1/cameras");
 
+export const fetchRequestableCameras = () => request<ApiCamera[]>("/api/v1/cameras/requestable");
+
 export const fetchAssignments = () => request<ApiAssignment[]>("/api/v1/assignments");
 
 export const createAssignment = (payload: CreateAssignmentPayload) =>
