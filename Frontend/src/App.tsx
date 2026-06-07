@@ -29,13 +29,6 @@ const Protected = ({ role, children }: { role: "admin" | "resident" | "security_
 };
 
 const App = () => {
-  useEffect(() => {
-    const interval = setInterval(() => {
-      window.location.reload();
-    }, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
