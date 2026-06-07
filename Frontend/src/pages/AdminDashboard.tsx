@@ -142,7 +142,7 @@ const AdminDashboard = () => {
               const preview = c.source_type === "ip_mjpeg" && c.source_url
                 ? <img src={getCameraStreamUrl(c.id, c.source_url)} alt={`${c.name} feed`} className="h-full w-full object-cover" />
                 : c.source_type === "admin_local" || c.source_type === "viewer_local"
-                  ? <AdminLocalPreview cameraId={c.id} objectFit="cover" />
+                  ? <AdminLocalPreview cameraId={c.id} objectFit="cover" active={expandedId !== c.id} />
                   : null;
               return (
                 <CameraTile
@@ -361,7 +361,7 @@ const AdminDashboard = () => {
                 preview={expandedCamera.source_type === "ip_mjpeg" && expandedCamera.source_url
                   ? <img src={getCameraStreamUrl(expandedCamera.id, expandedCamera.source_url)} alt={`${expandedCamera.name} feed`} className="h-full w-full object-contain" />
                   : expandedCamera.source_type === "admin_local" || expandedCamera.source_type === "viewer_local"
-                    ? <AdminLocalPreview cameraId={expandedCamera.id} objectFit="contain" />
+                    ? <AdminLocalPreview cameraId={expandedCamera.id} objectFit="contain" active />
                     : null
                 }
               />

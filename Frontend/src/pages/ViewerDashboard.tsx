@@ -51,6 +51,7 @@ const buildAssignedPreview = (
   accessDenied: boolean,
   onAccessDenied: (cameraId: number) => void,
   objectFit: "cover" | "contain" = "cover",
+  active = true,
 ) => {
   if (accessDenied) {
     return previewPlaceholder("Access revoked or expired. Request access again.");
@@ -82,6 +83,7 @@ const buildAssignedPreview = (
         emptyMessage="Waiting for admin to start webcam stream"
         onAccessDenied={() => onAccessDenied(camera.id)}
         objectFit={objectFit}
+        active={active}
       />
     );
   }
@@ -93,6 +95,7 @@ const buildAssignedPreview = (
         emptyMessage="Waiting for camera owner to start streaming"
         onAccessDenied={() => onAccessDenied(camera.id)}
         objectFit={objectFit}
+        active={active}
       />
     );
   }
@@ -256,7 +259,7 @@ const ViewerDashboard = () => {
                 const preview = c.source_type === "ip_mjpeg" && c.source_url
                   ? <img src={getCameraStreamUrl(c.id, c.source_url)} alt={`${c.name} feed`} className="h-full w-full object-cover" />
                   : c.source_type === "viewer_local"
-                    ? <AdminLocalPreview cameraId={c.id} objectFit="cover" />
+                    ? <AdminLocalPreview cameraId={c.id} objectFit="cover" active={expandedId !== c.id} />
                     : null;
                 return (
                   <div
@@ -330,7 +333,7 @@ const ViewerDashboard = () => {
             <div className={`${assignedGridClass(assignedNonOwned.length)} ${assignedNonOwned.length === 1 ? "mx-auto" : ""}`}>
               {assignedNonOwned.map((c) => {
                 const lowTime = c.expiresIn < 60;
-                const preview = buildAssignedPreview(c, capabilitySessions[c.id], !!accessDeniedCameras[c.id], handleAccessDenied);
+                const preview = buildAssignedPreview(c, capabilitySessions[c.id], !!accessDeniedCameras[c.id], handleAccessDenied, "cover", expandedId !== c.id);
                 return (
                   <div
                     key={`${c.assignmentId}-${c.id}`}
@@ -389,11 +392,11 @@ const ViewerDashboard = () => {
                 name={expandedCamera.name}
                 status={expandedCamera.status}
                 variant="expanded"
-                preview={"expiresIn" in expandedCamera ? buildAssignedPreview(expandedCamera, capabilitySessions[expandedCamera.id], !!accessDeniedCameras[expandedCamera.id], handleAccessDenied, "contain") : (
+                preview={"expiresIn" in expandedCamera ? buildAssignedPreview(expandedCamera, capabilitySessions[expandedCamera.id], !!accessDeniedCameras[expandedCamera.id], handleAccessDenied, "contain", true) : (
                   expandedCamera.source_type === "ip_mjpeg" && expandedCamera.source_url
                     ? <img src={getCameraStreamUrl(expandedCamera.id, expandedCamera.source_url)} alt={`${expandedCamera.name} feed`} className="h-full w-full object-contain" />
                     : expandedCamera.source_type === "viewer_local"
-                      ? <AdminLocalPreview cameraId={expandedCamera.id} objectFit="contain" />
+                      ? <AdminLocalPreview cameraId={expandedCamera.id} objectFit="contain" active />
                       : null
                 )}
               />

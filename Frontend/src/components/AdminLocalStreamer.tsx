@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { uploadCameraFrame } from "@/lib/api";
+import {
+  LOCAL_CAMERA_JPEG_QUALITY,
+  LOCAL_CAMERA_UPLOAD_INTERVAL_MS,
+  scaleLocalCameraDimensions,
+} from "@/lib/localCameraConfig";
+import { registerLocalStream, unregisterLocalStream } from "@/lib/localStreamRegistry";
 import { toast } from "sonner";
 
 interface Props {
@@ -14,17 +20,26 @@ export const AdminLocalStreamer = ({ cameraId }: Props) => {
   const timerRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stoppedRef = useRef(false);
+  const uploadingRef = useRef(false);
+  const dimensionsRef = useRef<{ width: number; height: number } | null>(null);
 
-  const stopStream = () => {
-    if (timerRef.current) {
-      window.clearTimeout(timerRef.current as unknown as number);
+  const clearTimer = () => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
+  };
+
+  const stopStream = () => {
+    clearTimer();
+    unregisterLocalStream(cameraId);
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+    uploadingRef.current = false;
+    dimensionsRef.current = null;
     stoppedRef.current = true;
     setStreaming(false);
   };
@@ -32,70 +47,79 @@ export const AdminLocalStreamer = ({ cameraId }: Props) => {
   const startStream = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 30, max: 30 } },
+        video: {
+          width: { ideal: 640, max: 960 },
+          height: { ideal: 360, max: 540 },
+          frameRate: { ideal: 20, max: 24 },
+        },
         audio: false,
       });
       streamRef.current = stream;
+      registerLocalStream(cameraId, stream);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
 
-      let uploading = false;
-      const minInterval = 50; // target interval in ms (~10 FPS)
-      const targetWidth = 420; // downscale to reduce payload
-
-      const runCapture = async () => {
+      const scheduleNext = (delayMs = LOCAL_CAMERA_UPLOAD_INTERVAL_MS) => {
         if (stoppedRef.current) return;
+        timerRef.current = window.setTimeout(runCapture, delayMs);
+      };
+
+      const runCapture = () => {
+        if (stoppedRef.current) return;
+
         const video = videoRef.current;
-        if (!video) {
-          timerRef.current = window.setTimeout(runCapture, minInterval) as unknown as number;
+        if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+          scheduleNext();
           return;
         }
-        if (uploading) {
-          timerRef.current = window.setTimeout(runCapture, minInterval) as unknown as number;
+
+        if (uploadingRef.current) {
+          scheduleNext(LOCAL_CAMERA_UPLOAD_INTERVAL_MS);
           return;
         }
 
         const canvas = canvasRef.current ?? document.createElement("canvas");
         canvasRef.current = canvas;
-        const vw = video.videoWidth || 640;
-        const vh = video.videoHeight || 360;
-        const scale = Math.min(1, targetWidth / vw);
-        const width = Math.max(160, Math.floor(vw * scale));
-        const height = Math.max(90, Math.floor(vh * scale));
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
+        const { width, height } = scaleLocalCameraDimensions(video.videoWidth, video.videoHeight);
+        if (!dimensionsRef.current || dimensionsRef.current.width !== width || dimensionsRef.current.height !== height) {
+          dimensionsRef.current = { width, height };
+          canvas.width = width;
+          canvas.height = height;
+        }
+        const ctx = canvas.getContext("2d", { alpha: false });
         if (!ctx) {
-          timerRef.current = window.setTimeout(runCapture, minInterval) as unknown as number;
+          scheduleNext();
           return;
         }
+
+        ctx.imageSmoothingEnabled = true;
         ctx.drawImage(video, 0, 0, width, height);
-        uploading = true;
-        const start = performance.now();
-        canvas.toBlob(async (blob) => {
-          if (!blob) {
-            uploading = false;
-            timerRef.current = window.setTimeout(runCapture, minInterval) as unknown as number;
-            return;
-          }
-          try {
-            await uploadCameraFrame(cameraId, blob);
-          } catch {
-            // ignore
-          } finally {
-            const elapsed = performance.now() - start;
-            uploading = false;
-            const next = Math.max(0, minInterval - elapsed);
-            timerRef.current = window.setTimeout(runCapture, next) as unknown as number;
-          }
-        }, "image/jpeg", 0.55);
+        uploadingRef.current = true;
+
+        canvas.toBlob(
+          (blob) => {
+            void (async () => {
+              try {
+                if (!blob || stoppedRef.current) return;
+                await uploadCameraFrame(cameraId, blob);
+              } catch {
+                // ignore transient upload errors
+              } finally {
+                uploadingRef.current = false;
+                scheduleNext(0);
+              }
+            })();
+          },
+          "image/jpeg",
+          LOCAL_CAMERA_JPEG_QUALITY,
+        );
       };
 
-      // start immediately
       stoppedRef.current = false;
-      timerRef.current = window.setTimeout(runCapture, 0) as unknown as number;
+      uploadingRef.current = false;
+      runCapture();
 
       setStreaming(true);
       toast.success("Admin webcam streaming", { description: "Viewers will see updates shortly." });
@@ -104,7 +128,7 @@ export const AdminLocalStreamer = ({ cameraId }: Props) => {
     }
   };
 
-  useEffect(() => () => stopStream(), []);
+  useEffect(() => () => stopStream(), [cameraId]);
 
   return (
     <div>

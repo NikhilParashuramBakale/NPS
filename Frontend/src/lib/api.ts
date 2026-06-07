@@ -331,8 +331,6 @@ export const uploadCameraFrame = async (cameraId: number, blob: Blob) => {
     const message = await response.text();
     throw new Error(message || `Request failed with ${response.status}`);
   }
-
-  return response.json() as Promise<{ status: string }>;
 };
 
 export const uploadViewerFrame = async (cameraId: number, blob: Blob) => {
@@ -355,8 +353,6 @@ export const uploadViewerFrame = async (cameraId: number, blob: Blob) => {
     const message = await response.text();
     throw new Error(message || `Request failed with ${response.status}`);
   }
-
-  return response.json() as Promise<{ status: string }>;
 };
 
 export const deleteAssignment = (assignmentId: string) =>

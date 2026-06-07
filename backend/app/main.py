@@ -94,8 +94,20 @@ app = FastAPI(title="SecureCam Backend", version="0.1.0")
 logger = logging.getLogger("securecam.auth")
 
 CAMERA_FRAMES: dict[int, bytes] = {}
+CAMERA_FRAME_SEQ: dict[int, int] = {}
 CAMERA_STREAM_HUBS: dict[int, "CameraStreamHub"] = {}
 CAMERA_STREAM_LOCK = asyncio.Lock()
+
+
+def _store_camera_frame(camera_id: int, contents: bytes) -> int:
+    CAMERA_FRAMES[camera_id] = contents
+    seq = CAMERA_FRAME_SEQ.get(camera_id, 0) + 1
+    CAMERA_FRAME_SEQ[camera_id] = seq
+    return seq
+
+
+def _frame_etag(camera_id: int) -> str:
+    return f'"{CAMERA_FRAME_SEQ.get(camera_id, 0)}"'
 
 
 class CameraStreamHub:
@@ -581,6 +593,7 @@ def request_camera_share(
 @app.get("/api/v1/cameras/{camera_id}/frame")
 def get_camera_frame(
     camera_id: int,
+    request: Request,
     current_user: User = Depends(get_current_user_from_token),
     capability_token: str | None = Query(default=None),
     db: Session = Depends(get_db),
@@ -605,7 +618,15 @@ def get_camera_frame(
     if not frame:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No frame available")
 
-    return Response(content=frame, media_type="image/jpeg")
+    etag = _frame_etag(camera_id)
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag, "Cache-Control": "no-store"})
+
+    return Response(
+        content=frame,
+        media_type="image/jpeg",
+        headers={"ETag": etag, "Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/v1/cameras/{camera_id}/stream")
@@ -683,7 +704,7 @@ async def upload_camera_frame(
     if len(contents) > 2_000_000:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Frame too large")
 
-    CAMERA_FRAMES[camera_id] = contents
+    _store_camera_frame(camera_id, contents)
     return {"status": "ok"}
 
 
@@ -711,7 +732,7 @@ async def upload_viewer_camera_frame(
     if len(contents) > 2_000_000:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Frame too large")
 
-    CAMERA_FRAMES[camera_id] = contents
+    _store_camera_frame(camera_id, contents)
     return {"status": "ok"}
 
 
