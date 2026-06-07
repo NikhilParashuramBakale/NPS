@@ -11,7 +11,7 @@ All routes are available under `/api/v1`. Spec aliases such as `/auth/login`, `/
 ## Auth
 
 - `POST /api/v1/auth/login`
-- `POST /api/v1/auth/logout`
+- `POST /api/v1/auth/logout` *(not implemented — client clears token locally)*
 - `GET /api/v1/auth/me`
 - `POST /api/v1/auth/pake/start`
 - `POST /api/v1/auth/pake/finish`

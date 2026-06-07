@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Link } from "react-router-dom";
 import { LogOut, Shield, Lock, AlertTriangle } from "lucide-react";
@@ -10,16 +10,54 @@ import { CameraTile } from "@/components/CameraTile";
 import { AdminLocalPreview } from "@/components/AdminLocalPreview";
 import { ViewerCameraDialog } from "@/components/ViewerCameraDialog";
 import { ViewerLocalStreamer } from "@/components/ViewerLocalStreamer";
-import { getCameraStreamUrl, issueCapabilityToken, validateCapabilityToken } from "@/lib/api";
+import {
+  getCameraCapabilityStreamUrl,
+  getCameraStreamUrl,
+  issueCapabilityToken,
+  validateCapabilityToken,
+} from "@/lib/api";
 import { toast } from "sonner";
 
 const previewPlaceholder = (message: string) => (
-  <div className="absolute inset-0 flex items-center justify-center bg-secondary/30 p-4 text-center text-xs text-muted-foreground">
-    {message}
+  <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 p-6 text-center">
+    <div className="max-w-[16rem] space-y-3">
+      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5">
+        <Lock className="h-4 w-4 text-[#22D3EE]" />
+      </div>
+      <p className="text-sm leading-relaxed text-[#94A3B8]">{message}</p>
+    </div>
   </div>
 );
 
-const buildAssignedPreview = (camera: Camera) => {
+const assignedGridClass = (count: number) => {
+  if (count <= 1) return "grid grid-cols-1 gap-6 max-w-4xl w-full";
+  if (count <= 2) return "grid grid-cols-1 lg:grid-cols-2 gap-6";
+  return "grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-2 gap-6";
+};
+
+const ownedGridClass = (count: number) => {
+  if (count <= 1) return "grid grid-cols-1 gap-6 max-w-3xl w-full";
+  return "grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6";
+};
+
+type CapabilitySession = {
+  token: string;
+  validated: boolean;
+};
+
+const buildAssignedPreview = (
+  camera: Camera,
+  session: CapabilitySession | null | undefined,
+  accessDenied: boolean,
+  onAccessDenied: (cameraId: number) => void,
+  objectFit: "cover" | "contain" = "cover",
+) => {
+  if (accessDenied) {
+    return previewPlaceholder("Access revoked or expired. Request access again.");
+  }
+  if (!session?.validated) {
+    return previewPlaceholder("Protected feed — expand to validate capability");
+  }
   if (camera.source_type === "unconfigured") {
     return previewPlaceholder("Admin has not configured this camera yet");
   }
@@ -27,23 +65,96 @@ const buildAssignedPreview = (camera: Camera) => {
     if (!camera.source_url) {
       return previewPlaceholder("Admin has not set the IP camera URL");
     }
-    return <img src={getCameraStreamUrl(camera.id, camera.source_url)} alt={`${camera.name} feed`} className="absolute inset-0 h-full w-full object-cover" />;
+    return (
+      <img
+        src={getCameraCapabilityStreamUrl(camera.id, session.token, camera.source_url)}
+        alt={`${camera.name} feed`}
+        className={`h-full w-full ${objectFit === "contain" ? "object-contain" : "object-cover"}`}
+        onError={() => onAccessDenied(camera.id)}
+      />
+    );
   }
   if (camera.source_type === "admin_local") {
-    return <AdminLocalPreview cameraId={camera.id} emptyMessage="Waiting for admin to start webcam stream" />;
+    return (
+      <AdminLocalPreview
+        cameraId={camera.id}
+        capabilityToken={session.token}
+        emptyMessage="Waiting for admin to start webcam stream"
+        onAccessDenied={() => onAccessDenied(camera.id)}
+        objectFit={objectFit}
+      />
+    );
   }
   if (camera.source_type === "viewer_local") {
-    return <AdminLocalPreview cameraId={camera.id} emptyMessage="Waiting for camera owner to start streaming" />;
+    return (
+      <AdminLocalPreview
+        cameraId={camera.id}
+        capabilityToken={session.token}
+        emptyMessage="Waiting for camera owner to start streaming"
+        onAccessDenied={() => onAccessDenied(camera.id)}
+        objectFit={objectFit}
+      />
+    );
   }
   return null;
 };
 
+const dashboardTitleForRole = (role?: string) => {
+  if (role === "resident") return "Resident Dashboard";
+  if (role === "security_guard") return "Security Guard Dashboard";
+  return "Viewer Dashboard";
+};
+
 const ViewerDashboard = () => {
-  const { user, logout, cameras, myAssignments, requestCameraShare } = useApp();
+  const { user, logout, cameras, myAssignments, requestCameraShare, refreshDashboard } = useApp();
   const navigate = useNavigate();
   const prevCount = useRef(myAssignments.length);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [capabilityStatus, setCapabilityStatus] = useState<Record<number, string>>({});
+  const [capabilitySessions, setCapabilitySessions] = useState<Record<number, CapabilitySession>>({});
+  const [accessDeniedCameras, setAccessDeniedCameras] = useState<Record<number, boolean>>({});
+
+  const handleAccessDenied = useCallback(async (cameraId: number) => {
+    setAccessDeniedCameras((prev) => (prev[cameraId] ? prev : { ...prev, [cameraId]: true }));
+    setCapabilitySessions((prev) => {
+      if (!prev[cameraId]) return prev;
+      const next = { ...prev };
+      delete next[cameraId];
+      return next;
+    });
+    setCapabilityStatus((prev) => ({
+      ...prev,
+      [cameraId]: "Access revoked or expired. Request access again.",
+    }));
+    setExpandedId((prev) => (prev === cameraId ? null : prev));
+    await refreshDashboard();
+  }, [refreshDashboard]);
+
+  useEffect(() => {
+    const assignedIds = new Set(myAssignments.flatMap((a) => a.cameraIds));
+    setCapabilitySessions((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const id of Object.keys(next)) {
+        if (!assignedIds.has(Number(id))) {
+          delete next[Number(id)];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    setAccessDeniedCameras((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const id of Object.keys(next)) {
+        if (!assignedIds.has(Number(id))) {
+          delete next[Number(id)];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [myAssignments]);
 
   useEffect(() => {
     if (prevCount.current > 0 && myAssignments.length < prevCount.current) {
@@ -82,10 +193,15 @@ const ViewerDashboard = () => {
   const openCamera = async (cameraId: number, requiresCapability: boolean) => {
     setExpandedId(cameraId);
     if (!requiresCapability) return;
+    if (capabilitySessions[cameraId]?.validated) return;
     try {
       const issued = await issueCapabilityToken(cameraId);
       const nonce = crypto.randomUUID();
       await validateCapabilityToken({ camera_id: cameraId, capability_token: issued.capability_token, nonce });
+      setCapabilitySessions((prev) => ({
+        ...prev,
+        [cameraId]: { token: issued.capability_token, validated: true },
+      }));
       setCapabilityStatus((prev) => ({ ...prev, [cameraId]: "Protected capability validated" }));
       toast.success("Capability token validated", { description: "Nonce accepted for this camera session." });
     } catch {
@@ -97,10 +213,10 @@ const ViewerDashboard = () => {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <SecurityBar />
-      <header className="flex items-center justify-between border-b border-border bg-card px-4 sm:px-6 py-3">
+      <header className="dashboard-header flex items-center justify-between px-4 sm:px-6 py-3">
         <div className="flex items-center gap-2">
           <Shield className="h-5 w-5 text-primary" />
-          <h1 className="font-semibold">Viewer Dashboard</h1>
+          <h1 className="font-semibold">{dashboardTitleForRole(user?.role)}</h1>
           <span className="hidden sm:inline text-xs text-muted-foreground ml-2">
             • {user?.username}
           </span>
@@ -113,12 +229,15 @@ const ViewerDashboard = () => {
       <main className="flex-1 p-4 sm:p-6">
         <div className="space-y-4">
           {assignedNonOwned.length === 0 && myCameras.length === 0 && (
-            <div className="rounded-xl border border-warning/40 bg-warning/10 p-4 text-center">
-              <AlertTriangle className="h-8 w-8 text-warning mx-auto mb-2" />
-              <h2 className="font-semibold text-base">No Active Camera Access</h2>
-              <p className="text-sm text-muted-foreground">
+            <div className="mx-auto flex min-h-[280px] max-w-2xl flex-col items-center justify-center rounded-2xl border border-warning/30 bg-warning/5 px-8 py-12 text-center">
+              <AlertTriangle className="mb-4 h-10 w-10 text-warning" />
+              <h2 className="text-lg font-semibold">No Active Camera Access</h2>
+              <p className="mt-2 max-w-md text-sm text-muted-foreground">
                 You have no cameras assigned. Add your camera or contact your administrator.
               </p>
+              <Button asChild className="mt-6" variant="outline" size="sm">
+                <Link to="/requests">Request Access</Link>
+              </Button>
             </div>
           )}
           <div className="flex items-center justify-between">
@@ -132,26 +251,26 @@ const ViewerDashboard = () => {
               Add a camera to share your feed with the admin.
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div className={ownedGridClass(myCameras.length)}>
               {myCameras.map((c) => {
                 const preview = c.source_type === "ip_mjpeg" && c.source_url
-                  ? <img src={getCameraStreamUrl(c.id, c.source_url)} alt={`${c.name} feed`} className="absolute inset-0 h-full w-full object-cover" />
+                  ? <img src={getCameraStreamUrl(c.id, c.source_url)} alt={`${c.name} feed`} className="h-full w-full object-cover" />
                   : c.source_type === "viewer_local"
-                    ? <AdminLocalPreview cameraId={c.id} />
+                    ? <AdminLocalPreview cameraId={c.id} objectFit="cover" />
                     : null;
                 return (
                   <div
                     key={`owned-${c.id}`}
-                    className="rounded-lg border border-border bg-card overflow-hidden flex flex-col"
+                    className="overflow-hidden rounded-2xl border border-white/10 bg-card/80 flex flex-col shadow-md"
                   >
                     <CameraTile
                       name={c.name}
                       status={c.status}
-                      height="h-48"
+                      variant="card"
                       preview={preview}
                       onExpand={() => setExpandedId(c.id)}
                     />
-                    <div className="p-4 space-y-3">
+                    <div className="space-y-3 p-5">
                       <div className="flex items-center justify-between">
                         <span className="font-medium text-sm">{c.name}</span>
                         <span className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-full ${c.is_active ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
@@ -208,23 +327,23 @@ const ViewerDashboard = () => {
               No assigned cameras yet.
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div className={`${assignedGridClass(assignedNonOwned.length)} ${assignedNonOwned.length === 1 ? "mx-auto" : ""}`}>
               {assignedNonOwned.map((c) => {
                 const lowTime = c.expiresIn < 60;
-                const preview = buildAssignedPreview(c);
+                const preview = buildAssignedPreview(c, capabilitySessions[c.id], !!accessDeniedCameras[c.id], handleAccessDenied);
                 return (
                   <div
                     key={`${c.assignmentId}-${c.id}`}
-                    className="rounded-lg border border-border bg-card overflow-hidden flex flex-col hover:border-primary/50 transition-colors"
+                    className="overflow-hidden rounded-2xl border border-white/10 bg-card/80 flex flex-col transition-colors hover:border-cyan-400/30 shadow-md"
                   >
                     <CameraTile
                       name={c.name}
                       status={c.status}
-                      height="h-48"
+                      variant="card"
                       preview={preview}
                       onExpand={() => void openCamera(c.id, true)}
                     />
-                    <div className="p-4 space-y-3">
+                    <div className="space-y-3 p-5">
                       <div className="flex items-center justify-between">
                         <span className="font-medium text-sm">{c.name}</span>
                         {c.status === "online" && (
@@ -260,7 +379,7 @@ const ViewerDashboard = () => {
       </main>
 
       <Dialog open={expandedId !== null} onOpenChange={(open) => { if (!open) setExpandedId(null); }}>
-        <DialogContent className="bg-card max-w-4xl">
+        <DialogContent className="max-w-5xl bg-card p-4 sm:p-6">
           {expandedCamera && (
             <div className="space-y-4">
               <DialogHeader>
@@ -269,12 +388,12 @@ const ViewerDashboard = () => {
               <CameraTile
                 name={expandedCamera.name}
                 status={expandedCamera.status}
-                height="h-[420px]"
-                preview={"expiresIn" in expandedCamera ? buildAssignedPreview(expandedCamera) : (
+                variant="expanded"
+                preview={"expiresIn" in expandedCamera ? buildAssignedPreview(expandedCamera, capabilitySessions[expandedCamera.id], !!accessDeniedCameras[expandedCamera.id], handleAccessDenied, "contain") : (
                   expandedCamera.source_type === "ip_mjpeg" && expandedCamera.source_url
-                    ? <img src={getCameraStreamUrl(expandedCamera.id, expandedCamera.source_url)} alt={`${expandedCamera.name} feed`} className="absolute inset-0 h-full w-full object-contain" />
+                    ? <img src={getCameraStreamUrl(expandedCamera.id, expandedCamera.source_url)} alt={`${expandedCamera.name} feed`} className="h-full w-full object-contain" />
                     : expandedCamera.source_type === "viewer_local"
-                      ? <AdminLocalPreview cameraId={expandedCamera.id} />
+                      ? <AdminLocalPreview cameraId={expandedCamera.id} objectFit="contain" />
                       : null
                 )}
               />

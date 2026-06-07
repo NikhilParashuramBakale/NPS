@@ -67,6 +67,8 @@ export const UserDialog = () => {
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="viewer">Viewer</SelectItem>
+                <SelectItem value="resident">Resident</SelectItem>
+                <SelectItem value="security_guard">Security Guard</SelectItem>
                 <SelectItem value="admin">Admin</SelectItem>
               </SelectContent>
             </Select>

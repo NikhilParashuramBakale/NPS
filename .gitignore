@@ -1,0 +1,104 @@
+# =============================================================================
+# NPS — SecureCam / Zero-Trust Surveillance (root gitignore)
+# =============================================================================
+
+# --- OS & editor noise ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# IDE / assistant tooling (local only)
+.idea/
+.vscode/
+!.vscode/extensions.json
+.continue/
+.cursor/
+
+# --- Environment & secrets ---
+.env
+.env.local
+.env.*.local
+.env.dev
+.env.prod
+.env.test
+# Keep committed templates:
+!.env.example
+
+# --- Python (backend) ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+develop-eggs/
+downloads/
+eggs/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+.installed.cfg
+MANIFEST
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+pytest-cache-files-*/
+.hypothesis/
+.dmypy.json
+dmypy.json
+
+# uv (if used locally)
+.uv/
+
+# --- Node / JavaScript (Frontend + backend PAKE bridge) ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.tsbuildinfo
+
+# Frontend build & Vite cache
+Frontend/dist/
+Frontend/dist-ssr/
+Frontend/.vite/
+Frontend/*.local
+
+# --- Databases & runtime data (local demo) ---
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# --- Logs ---
+logs/
+*.log
+
+# --- Misc local artifacts ---
+*.bak
+*.tmp
+.cache/

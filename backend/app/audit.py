@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -32,6 +32,41 @@ def log_event(
         )
     )
     db.commit()
+
+
+def log_unauthorized_camera_access_once(
+    db: Session,
+    *,
+    actor_username: str,
+    camera_id: int,
+    action: str,
+    throttle_seconds: int = 45,
+) -> None:
+    now = datetime.now(UTC).replace(tzinfo=None)
+    cutoff = now - timedelta(seconds=throttle_seconds)
+    recent = db.scalars(
+        select(SecurityEvent)
+        .where(
+            SecurityEvent.event_type == "UNAUTHORIZED_CAMERA_ACCESS",
+            SecurityEvent.actor_username == actor_username,
+            SecurityEvent.created_at >= cutoff,
+        )
+        .order_by(SecurityEvent.created_at.desc())
+        .limit(20)
+    ).all()
+    for event in recent:
+        details = event.details or {}
+        if details.get("camera_id") == camera_id:
+            return
+
+    log_event(
+        db,
+        "UNAUTHORIZED_CAMERA_ACCESS",
+        actor_username=actor_username,
+        severity="high",
+        category="authorization",
+        details={"camera_id": camera_id, "action": action},
+    )
 
 
 def write_audit_log(

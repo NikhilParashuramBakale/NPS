@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 import logging
 from typing import AsyncIterator
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 import httpx
@@ -14,21 +14,68 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from .access import (
+    ASSIGNABLE_ROLES,
+    enforce_camera_access,
+    get_assigned_camera_ids,
+    get_active_assignments_for_user,
+    is_limited_role,
+    issue_capability_for_user,
+    nonce_already_used,
+    prune_expired_nonces,
+    store_nonce,
+    user_can_access_camera,
+    validate_capability_payload,
+)
 from .auth import create_access_token, hash_password, needs_password_rehash, verify_password
-from .audit import log_event, prune_expired_assignments, recent_events_for_user
+from .audit import (
+    log_event,
+    log_unauthorized_camera_access_once,
+    prune_expired_assignments,
+    recent_events_for_user,
+    write_audit_log,
+)
 from .config import settings
-from .database import Base, SessionLocal, engine, ensure_camera_source_columns, ensure_user_pake_columns, get_db
+from .database import (
+    Base,
+    SessionLocal,
+    engine,
+    ensure_camera_source_columns,
+    ensure_security_project_columns,
+    ensure_user_pake_columns,
+    get_db,
+)
 from .deps import get_current_user, get_current_user_from_token, require_admin
-from .models import Assignment, Camera, CameraSourceType, CameraStatus, PakeSession, User, UserRole, AccessRequest, AccessRequestStatus
+from .models import (
+    AccessRequest,
+    AccessRequestStatus,
+    Assignment,
+    AuditLog,
+    Camera,
+    CameraSourceType,
+    CameraStatus,
+    PakeSession,
+    SecurityEvent,
+    User,
+    UserRole,
+)
 from .pake_bridge import compute_verifier, finish_pake, generate_salt, pake_public_config, start_pake
 from .schemas import (
+    AccessRequestCreate,
+    AccessRequestOut,
+    AccessRequestReview,
     AdminCameraAccessUpdate,
     AdminUserCreate,
     AssignmentCreate,
     AssignmentOut,
+    AuditLogOut,
     CameraCreate,
     CameraOut,
     CameraUpdate,
+    CapabilityIssueRequest,
+    CapabilityTokenOut,
+    CapabilityValidateOut,
+    CapabilityValidateRequest,
     LoginRequest,
     LoginResponse,
     PakeFinishRequest,
@@ -37,11 +84,9 @@ from .schemas import (
     PakeStartResponse,
     PakeUpgradeRequest,
     PakeUpgradeResponse,
+    SecurityDashboardOut,
     SecurityEventOut,
     UserOut,
-    AccessRequestCreate,
-    AccessRequestOut,
-    AccessRequestReview,
 )
 from .seed import seed_data
 
@@ -180,6 +225,7 @@ def startup() -> None:
     Base.metadata.create_all(bind=engine)
     ensure_user_pake_columns()
     ensure_camera_source_columns()
+    ensure_security_project_columns()
     with SessionLocal() as db:
         seed_data(db)
         prune_expired_assignments(db)
@@ -197,7 +243,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse
     if not user or user.role.value != payload.role:
         log_event(
             db,
-            "login_failure",
+            "LOGIN_FAILURE",
             actor_username=payload.username,
             details={"requested_role": payload.role, "reason": "invalid_credentials"},
         )
@@ -206,7 +252,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse
     if not verify_password(payload.password, user.password_hash):
         log_event(
             db,
-            "login_failure",
+            "LOGIN_FAILURE",
             actor_username=payload.username,
             details={"requested_role": payload.role, "reason": "invalid_credentials"},
         )
@@ -220,10 +266,18 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse
     token = create_access_token(subject=str(user.id), role=user.role.value)
     log_event(
         db,
-        "login_success",
+        "LOGIN_SUCCESS",
         actor_username=user.username,
         target_username=user.username,
+        category="authentication",
         details={"role": user.role.value},
+    )
+    write_audit_log(
+        db,
+        "LOGIN_SUCCESS",
+        actor_id=user.id,
+        target_id=str(user.id),
+        description=f"User {user.username} logged in successfully.",
     )
     return LoginResponse(
         access_token=token,
@@ -260,7 +314,7 @@ def pake_start(payload: PakeStartRequest, db: Session = Depends(get_db)) -> Pake
     if not user or user.role.value != payload.role:
         log_event(
             db,
-            "login_failure",
+            "LOGIN_FAILURE",
             actor_username=payload.username,
             details={"requested_role": payload.role, "reason": "invalid_credentials"},
         )
@@ -314,7 +368,7 @@ def pake_finish(payload: PakeFinishRequest, db: Session = Depends(get_db)) -> Pa
         logger.exception("PAKE finish failed for user %s", user.username)
         log_event(
             db,
-            "login_failure",
+            "LOGIN_FAILURE",
             actor_username=user.username,
             details={"requested_role": user.role.value, "reason": "pake_failed", "error": str(exc)},
         )
@@ -326,10 +380,18 @@ def pake_finish(payload: PakeFinishRequest, db: Session = Depends(get_db)) -> Pa
     token = create_access_token(subject=str(user.id), role=user.role.value)
     log_event(
         db,
-        "login_success",
+        "LOGIN_SUCCESS",
         actor_username=user.username,
         target_username=user.username,
+        category="authentication",
         details={"role": user.role.value, "method": "pake"},
+    )
+    write_audit_log(
+        db,
+        "LOGIN_SUCCESS",
+        actor_id=user.id,
+        target_id=str(user.id),
+        description=f"User {user.username} completed PAKE login.",
     )
     return PakeFinishResponse(
         access_token=token,
@@ -373,12 +435,8 @@ def me(current_user: User = Depends(get_current_user)) -> UserOut:
 @app.get("/api/v1/cameras", response_model=list[CameraOut])
 def list_cameras(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[CameraOut]:
     prune_expired_assignments(db)
-    if current_user.role == UserRole.viewer:
-        now = datetime.now(UTC).replace(tzinfo=None)
-        assignments = db.scalars(
-            select(Assignment).where(Assignment.viewer_id == current_user.id, Assignment.expires_at > now)
-        ).all()
-        assigned_ids = {cid for a in assignments for cid in a.camera_ids}
+    if is_limited_role(current_user):
+        assigned_ids = get_assigned_camera_ids(db, current_user.id)
         owned = db.scalars(select(Camera).where(Camera.owner_id == current_user.id).order_by(Camera.id)).all()
         cameras: dict[int, Camera] = {}
         if assigned_ids:
@@ -389,9 +447,8 @@ def list_cameras(current_user: User = Depends(get_current_user), db: Session = D
         visible = [cam for cam in cameras.values() if cam.is_active]
         visible.sort(key=lambda cam: cam.id)
         return [_as_camera_out(camera, current_user.id, current_user.role) for camera in visible]
-    else:
-        cameras = db.scalars(select(Camera).order_by(Camera.id)).all()
-        return [_as_camera_out(camera, current_user.id, current_user.role) for camera in cameras]
+    cameras = db.scalars(select(Camera).order_by(Camera.id)).all()
+    return [_as_camera_out(camera, current_user.id, current_user.role) for camera in cameras]
 
 
 @app.post("/api/v1/cameras", response_model=CameraOut)
@@ -400,8 +457,8 @@ def create_viewer_camera(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> CameraOut:
-    if current_user.role not in {UserRole.viewer, UserRole.resident}:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Viewer or resident role required")
+    if not is_limited_role(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Limited-access role required")
 
     if payload.source_type not in {CameraSourceType.ip_mjpeg.value, CameraSourceType.viewer_local.value}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid source_type")
@@ -443,6 +500,8 @@ def get_requestable_cameras(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> list[CameraOut]:
+    if not is_limited_role(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Limited-access role required")
     cameras = db.scalars(select(Camera).where(Camera.owner_id.is_(None), Camera.is_active.is_(True)).order_by(Camera.id)).all()
     return [_as_camera_out(cam, current_user.id, current_user.role) for cam in cameras]
 
@@ -522,29 +581,25 @@ def request_camera_share(
 @app.get("/api/v1/cameras/{camera_id}/frame")
 def get_camera_frame(
     camera_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_from_token),
+    capability_token: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> Response:
     camera = db.get(Camera, camera_id)
     if not camera:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
 
-    if not camera.is_active and current_user.role != UserRole.admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Camera is disabled")
-
-    is_owner = camera.owner_id == current_user.id
-
-    if current_user.role == UserRole.viewer and not is_owner:
-        now = datetime.now(UTC).replace(tzinfo=None)
-        assignments = db.scalars(
-            select(Assignment).where(
-                Assignment.viewer_id == current_user.id,
-                Assignment.expires_at > now,
+    try:
+        enforce_camera_access(db, user=current_user, camera=camera, capability_token=capability_token)
+    except HTTPException as exc:
+        if exc.status_code in {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN}:
+            log_unauthorized_camera_access_once(
+                db,
+                actor_username=current_user.username,
+                camera_id=camera_id,
+                action="frame",
             )
-        ).all()
-        allowed_ids = {cid for a in assignments for cid in a.camera_ids}
-        if camera_id not in allowed_ids:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Camera not assigned")
+        raise
 
     frame = CAMERA_FRAMES.get(camera_id)
     if not frame:
@@ -557,31 +612,27 @@ def get_camera_frame(
 async def stream_camera(
     camera_id: int,
     current_user: User = Depends(get_current_user_from_token),
+    capability_token: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     camera = db.get(Camera, camera_id)
     if not camera:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
 
-    if not camera.is_active and current_user.role != UserRole.admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Camera is disabled")
-
     if camera.source_type != CameraSourceType.ip_mjpeg or not camera.source_url:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Camera is not configured for ip_mjpeg")
 
-    is_owner = camera.owner_id == current_user.id
-
-    if current_user.role == UserRole.viewer and not is_owner:
-        now = datetime.now(UTC).replace(tzinfo=None)
-        assignments = db.scalars(
-            select(Assignment).where(
-                Assignment.viewer_id == current_user.id,
-                Assignment.expires_at > now,
+    try:
+        enforce_camera_access(db, user=current_user, camera=camera, capability_token=capability_token)
+    except HTTPException as exc:
+        if exc.status_code in {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN}:
+            log_unauthorized_camera_access_once(
+                db,
+                actor_username=current_user.username,
+                camera_id=camera_id,
+                action="stream",
             )
-        ).all()
-        allowed_ids = {cid for a in assignments for cid in a.camera_ids}
-        if camera_id not in allowed_ids:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Camera not assigned")
+        raise
 
     media_type = "multipart/x-mixed-replace"
     try:
@@ -782,8 +833,9 @@ def list_users(
 ) -> list[UserOut]:
     stmt = select(User)
     if role:
-        if role not in {UserRole.admin.value, UserRole.viewer.value}:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="role must be admin or viewer")
+        allowed_roles = {r.value for r in UserRole}
+        if role not in allowed_roles:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role filter")
         stmt = stmt.where(User.role == UserRole(role))
     users = db.scalars(stmt.order_by(User.username.asc())).all()
     return [UserOut(id=user.id, username=user.username, role=user.role.value) for user in users]
@@ -795,8 +847,8 @@ def create_user(
     admin_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> UserOut:
-    if payload.role not in {UserRole.admin.value, UserRole.viewer.value}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="role must be admin or viewer")
+    if payload.role not in {r.value for r in UserRole}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
 
     existing = db.scalar(select(User).where(User.username == payload.username))
     if existing:
@@ -835,6 +887,9 @@ def _as_assignment_out(a: Assignment, db: Session) -> AssignmentOut:
         viewer_id=a.viewer_id,
         viewer_name=viewer.username if viewer else f"Viewer {a.viewer_id}",
         camera_ids=a.camera_ids,
+        user_id=a.user_id or a.viewer_id,
+        camera_id=a.camera_id or (a.camera_ids[0] if a.camera_ids else None),
+        status=a.status,
         expires_in=remaining,
         expires_at=a.expires_at,
     )
@@ -844,8 +899,8 @@ def _as_assignment_out(a: Assignment, db: Session) -> AssignmentOut:
 def list_assignments(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[AssignmentOut]:
     prune_expired_assignments(db)
     now = datetime.now(UTC).replace(tzinfo=None)
-    stmt = select(Assignment).where(Assignment.expires_at > now)
-    if current_user.role == UserRole.viewer:
+    stmt = select(Assignment).where(Assignment.status == "active", Assignment.expires_at > now)
+    if is_limited_role(current_user):
         stmt = stmt.where(Assignment.viewer_id == current_user.id)
 
     assignments = db.scalars(stmt.order_by(Assignment.expires_at.asc())).all()
@@ -860,8 +915,8 @@ def create_assignment(
 ) -> AssignmentOut:
     prune_expired_assignments(db)
     viewer = db.get(User, payload.viewer_id)
-    if not viewer or viewer.role != UserRole.viewer:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="viewer_id must be a viewer user")
+    if not viewer or viewer.role not in ASSIGNABLE_ROLES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="viewer_id must be a limited-access user")
 
     cameras = db.scalars(select(Camera).where(Camera.id.in_(payload.camera_ids))).all()
     if len(cameras) != len(set(payload.camera_ids)):
@@ -882,16 +937,33 @@ def create_assignment(
             )
 
     expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=payload.duration_minutes)
-    assignment = Assignment(viewer_id=payload.viewer_id, camera_ids=sorted(set(payload.camera_ids)), expires_at=expires_at)
+    primary_camera_id = sorted(set(payload.camera_ids))[0]
+    assignment = Assignment(
+        viewer_id=payload.viewer_id,
+        user_id=payload.viewer_id,
+        camera_id=primary_camera_id,
+        camera_ids=sorted(set(payload.camera_ids)),
+        granted_by=_admin_user.id,
+        expires_at=expires_at,
+        status="active",
+    )
     db.add(assignment)
     db.commit()
     db.refresh(assignment)
     log_event(
         db,
-        "assignment_created",
+        "ACCESS_GRANTED",
         actor_username=_admin_user.username,
         target_username=viewer.username,
+        category="authorization",
         details={"assignment_id": assignment.id, "camera_ids": assignment.camera_ids, "expires_at": assignment.expires_at.isoformat()},
+    )
+    write_audit_log(
+        db,
+        "ACCESS_GRANTED",
+        actor_id=_admin_user.id,
+        target_id=assignment.id,
+        description=f"Temporary access granted to {viewer.username}.",
     )
     return _as_assignment_out(assignment, db)
 
@@ -907,32 +979,190 @@ def revoke_assignment(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment not found")
 
     viewer = db.get(User, assignment.viewer_id)
-    db.delete(assignment)
+    assignment.status = "revoked"
+    assignment.revoked_at = datetime.now(UTC).replace(tzinfo=None)
+    db.add(assignment)
     db.commit()
     log_event(
         db,
-        "assignment_revoked",
+        "ACCESS_REVOKED",
         actor_username=admin_user.username,
         target_username=viewer.username if viewer else str(assignment.viewer_id),
+        category="authorization",
         details={"assignment_id": assignment_id, "camera_ids": assignment.camera_ids},
+    )
+    write_audit_log(
+        db,
+        "ACCESS_REVOKED",
+        actor_id=admin_user.id,
+        target_id=assignment_id,
+        description=f"Access revoked for {viewer.username if viewer else assignment.viewer_id}.",
     )
     return {"status": "revoked", "assignment_id": assignment_id}
 
 
+def _as_security_event_out(event: SecurityEvent) -> SecurityEventOut:
+    return SecurityEventOut(
+        id=event.id,
+        event_type=event.event_type,
+        severity=event.severity,
+        category=event.category,
+        description=event.description,
+        actor_username=event.actor_username,
+        target_username=event.target_username,
+        details=event.details or {},
+        created_at=event.created_at,
+    )
+
+
+def _as_audit_log_out(log: AuditLog) -> AuditLogOut:
+    return AuditLogOut(
+        id=log.id,
+        event_type=log.event_type,
+        actor_id=log.actor_id,
+        target_id=log.target_id,
+        description=log.description,
+        created_at=log.created_at,
+    )
+
+
+def _security_events_response(current_user: User, db: Session) -> list[SecurityEventOut]:
+    events = recent_events_for_user(db, current_user.username, current_user.role.value)
+    return [_as_security_event_out(event) for event in events]
+
+
 @app.get("/api/v1/security/events", response_model=list[SecurityEventOut])
 def security_events(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[SecurityEventOut]:
-    events = recent_events_for_user(db, current_user.username, current_user.role.value)
-    return [
-        SecurityEventOut(
-            id=event.id,
-            event_type=event.event_type,
-            actor_username=event.actor_username,
-            target_username=event.target_username,
-            details=event.details or {},
-            created_at=event.created_at,
+    return _security_events_response(current_user, db)
+
+
+@app.get("/api/v1/security-events", response_model=list[SecurityEventOut])
+def security_events_alias(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[SecurityEventOut]:
+    return _security_events_response(current_user, db)
+
+
+@app.get("/api/v1/audit-logs", response_model=list[AuditLogOut])
+def audit_logs(admin_user: User = Depends(require_admin), db: Session = Depends(get_db)) -> list[AuditLogOut]:
+    logs = db.scalars(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(50)).all()
+    return [_as_audit_log_out(log) for log in logs]
+
+
+@app.get("/api/v1/security-dashboard", response_model=SecurityDashboardOut)
+def security_dashboard(admin_user: User = Depends(require_admin), db: Session = Depends(get_db)) -> SecurityDashboardOut:
+    _ = admin_user
+    prune_expired_assignments(db)
+    prune_expired_nonces(db)
+
+    events = list(db.scalars(select(SecurityEvent)).all())
+    auth_success = sum(1 for e in events if e.event_type == "LOGIN_SUCCESS")
+    auth_failure = sum(1 for e in events if e.event_type == "LOGIN_FAILURE")
+
+    requests = list(db.scalars(select(AccessRequest)).all())
+    pending_requests = sum(1 for r in requests if r.status == AccessRequestStatus.pending)
+    approved_requests = sum(1 for r in requests if r.status == AccessRequestStatus.approved)
+    rejected_requests = sum(1 for r in requests if r.status == AccessRequestStatus.rejected)
+
+    assignments = list(db.scalars(select(Assignment)).all())
+    expired_assignments = sum(1 for a in assignments if a.status == "expired")
+    revoked_assignments = sum(1 for a in assignments if a.status == "revoked")
+
+    recent_security_events = list(
+        db.scalars(select(SecurityEvent).order_by(SecurityEvent.created_at.desc()).limit(10)).all()
+    )
+    recent_audit_logs = list(
+        db.scalars(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(10)).all()
+    )
+
+    return SecurityDashboardOut(
+        authentication_success_count=auth_success,
+        authentication_failure_count=auth_failure,
+        pending_requests=pending_requests,
+        approved_requests=approved_requests,
+        rejected_requests=rejected_requests,
+        expired_assignments=expired_assignments,
+        revoked_assignments=revoked_assignments,
+        recent_security_events=[_as_security_event_out(e) for e in recent_security_events],
+        recent_audit_logs=[_as_audit_log_out(log) for log in recent_audit_logs],
+    )
+
+
+@app.post("/api/v1/capabilities", response_model=CapabilityTokenOut)
+def issue_capability(
+    payload: CapabilityIssueRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CapabilityTokenOut:
+    prune_expired_assignments(db)
+    token, expires_at = issue_capability_for_user(
+        db,
+        user=current_user,
+        camera_id=payload.camera_id,
+        permissions=payload.permissions,
+    )
+    return CapabilityTokenOut(
+        capability_token=token,
+        camera_id=payload.camera_id,
+        permissions=payload.permissions,
+        expires_at=expires_at,
+    )
+
+
+@app.post("/api/v1/capabilities/validate", response_model=CapabilityValidateOut)
+def validate_capability(
+    payload: CapabilityValidateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CapabilityValidateOut:
+    prune_expired_assignments(db)
+    prune_expired_nonces(db)
+
+    capability_payload = validate_capability_payload(
+        db,
+        user=current_user,
+        camera_id=payload.camera_id,
+        capability_token=payload.capability_token,
+    )
+
+    if nonce_already_used(db, user_id=current_user.id, nonce=payload.nonce):
+        log_event(
+            db,
+            "REPLAY_ATTACK_DETECTED",
+            actor_username=current_user.username,
+            severity="high",
+            category="security",
+            description="Replayed capability nonce rejected.",
+            details={"camera_id": payload.camera_id, "nonce": payload.nonce},
         )
-        for event in events
-    ]
+        write_audit_log(
+            db,
+            "REPLAY_ATTACK_DETECTED",
+            actor_id=current_user.id,
+            target_id=str(payload.camera_id),
+            description="Replayed capability nonce rejected.",
+        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nonce already used")
+
+    exp_ts = int(capability_payload.get("exp", 0))
+    expires_at = datetime.fromtimestamp(exp_ts, tz=UTC).replace(tzinfo=None)
+    store_nonce(db, user_id=current_user.id, nonce=payload.nonce, expires_at=expires_at)
+
+    permissions = capability_payload.get("permissions", ["VIEW"])
+    log_event(
+        db,
+        "CAMERA_VIEW_STARTED",
+        actor_username=current_user.username,
+        category="authorization",
+        details={"camera_id": payload.camera_id, "permissions": permissions},
+    )
+    write_audit_log(
+        db,
+        "CAMERA_VIEW_STARTED",
+        actor_id=current_user.id,
+        target_id=str(payload.camera_id),
+        description=f"Camera {payload.camera_id} view session validated.",
+    )
+
+    return CapabilityValidateOut(status="ok", camera_id=payload.camera_id, permissions=permissions)
 
 
 def _as_access_request_out(r: AccessRequest, db: Session) -> AccessRequestOut:
@@ -976,6 +1206,9 @@ def create_access_request(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> AccessRequestOut:
+    if not is_limited_role(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Limited-access role required")
+
     camera = db.get(Camera, payload.camera_id)
     if not camera or not camera.is_active or camera.owner_id is not None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid camera")
@@ -990,7 +1223,20 @@ def create_access_request(
     db.commit()
     db.refresh(req)
     
-    log_event(db, "access_request_created", actor_username=current_user.username, details={"camera_id": camera.id})
+    log_event(
+        db,
+        "REQUEST_CREATED",
+        actor_username=current_user.username,
+        category="authorization",
+        details={"camera_id": camera.id, "request_id": req.id},
+    )
+    write_audit_log(
+        db,
+        "REQUEST_CREATED",
+        actor_id=current_user.id,
+        target_id=str(req.id),
+        description=f"Access request created for camera {camera.name}.",
+    )
     return _as_access_request_out(req, db)
 
 
@@ -1012,12 +1258,51 @@ def approve_request(
     
     duration = payload.duration_hours * 60
     expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=duration)
-    assignment = Assignment(viewer_id=req.requester_id, camera_ids=[req.camera_id], expires_at=expires_at)
+    requester = db.get(User, req.requester_id)
+    assignment = Assignment(
+        viewer_id=req.requester_id,
+        user_id=req.requester_id,
+        camera_id=req.camera_id,
+        camera_ids=[req.camera_id],
+        granted_by=admin_user.id,
+        access_request_id=req.id,
+        expires_at=expires_at,
+        status="active",
+    )
     db.add(assignment)
     db.commit()
     db.refresh(assignment)
-    
-    log_event(db, "access_request_approved", actor_username=admin_user.username, details={"request_id": request_id})
+
+    log_event(
+        db,
+        "REQUEST_APPROVED",
+        actor_username=admin_user.username,
+        target_username=requester.username if requester else str(req.requester_id),
+        category="authorization",
+        details={"request_id": request_id, "assignment_id": assignment.id},
+    )
+    log_event(
+        db,
+        "ACCESS_GRANTED",
+        actor_username=admin_user.username,
+        target_username=requester.username if requester else str(req.requester_id),
+        category="authorization",
+        details={"assignment_id": assignment.id, "camera_id": req.camera_id},
+    )
+    write_audit_log(
+        db,
+        "REQUEST_APPROVED",
+        actor_id=admin_user.id,
+        target_id=str(request_id),
+        description=f"Access request approved for camera {req.camera_id}.",
+    )
+    write_audit_log(
+        db,
+        "ACCESS_GRANTED",
+        actor_id=admin_user.id,
+        target_id=assignment.id,
+        description=f"Temporary access granted to {requester.username if requester else req.requester_id}.",
+    )
     return _as_assignment_out(assignment, db)
 
 
@@ -1038,6 +1323,19 @@ def reject_request(
     db.commit()
     db.refresh(req)
     
-    log_event(db, "access_request_rejected", actor_username=admin_user.username, details={"request_id": request_id})
+    log_event(
+        db,
+        "REQUEST_REJECTED",
+        actor_username=admin_user.username,
+        category="authorization",
+        details={"request_id": request_id},
+    )
+    write_audit_log(
+        db,
+        "REQUEST_REJECTED",
+        actor_id=admin_user.id,
+        target_id=str(request_id),
+        description=f"Access request {request_id} rejected.",
+    )
     return _as_access_request_out(req, db)
 

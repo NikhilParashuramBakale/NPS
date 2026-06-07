@@ -44,7 +44,7 @@ def test_assignment_create_and_revoke_are_logged(client):
     events = events_response.json()
 
     event_types = [event["event_type"] for event in events]
-    assert "assignment_created" in event_types
+    assert "ACCESS_GRANTED" in event_types
     assert "ACCESS_REVOKED" in event_types
 
 
@@ -68,5 +68,5 @@ def test_viewer_sees_only_relevant_events(client):
     admin_event_types = {event["event_type"] for event in admin_events.json()}
     viewer_event_types = {event["event_type"] for event in viewer_events.json()}
 
-    assert "assignment_created" in admin_event_types
-    assert "assignment_created" in viewer_event_types
+    assert "ACCESS_GRANTED" in admin_event_types
+    assert "ACCESS_GRANTED" in viewer_event_types

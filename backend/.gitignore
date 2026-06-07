@@ -1,47 +1,49 @@
-# Environment variables
+# Backend-specific ignores (root .gitignore also applies)
+
+# Secrets — never commit real env files
 .env
 .env.local
 .env.*.local
+.env.dev
+.env.prod
+.env.test
+!.env.example
 
-# Python
+# Python bytecode & caches
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Testing
 .pytest_cache/
-.coverage
-htmlcov/
-.tox/
+.mypy_cache/
+.ruff_cache/
+pytest-cache-files-*/
 
-# Database
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Local SQLite database
 *.db
 *.sqlite
 *.sqlite3
 
+# Node deps for pake_cli.cjs / spake2
+node_modules/
+
+# Test / coverage output
+.coverage
+htmlcov/
+.tox/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
 # IDE
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
 
 # OS
 .DS_Store

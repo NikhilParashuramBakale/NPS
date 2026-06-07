@@ -106,6 +106,143 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
   }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer components {
+  .landing-page {
+    background: #060b14;
+    color: #f8fafc;
+  }
+
+  .glass-card {
+    background: rgba(15, 23, 42, 0.72);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 1rem;
+    backdrop-filter: blur(16px);
+  }
+
+  .glow-border {
+    box-shadow:
+      0 0 0 1px rgba(59, 130, 246, 0.12),
+      0 0 40px rgba(34, 211, 238, 0.06);
+  }
+
+  .landing-cta-primary {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: #f8fafc;
+    border: 1px solid rgba(96, 165, 250, 0.4);
+    box-shadow: 0 4px 24px rgba(59, 130, 246, 0.25);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .landing-cta-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 32px rgba(59, 130, 246, 0.35);
+  }
+
+  .landing-cta-secondary {
+    background: rgba(15, 23, 42, 0.6);
+    color: #f8fafc;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+
+  .landing-cta-secondary:hover {
+    background: rgba(30, 41, 59, 0.8);
+    border-color: rgba(34, 211, 238, 0.35);
+  }
+
+  .landing-card-hover {
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  }
+
+  .landing-card-hover:hover {
+    transform: translateY(-3px);
+    border-color: rgba(34, 211, 238, 0.25);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  }
+
+  .login-input {
+    background: rgba(10, 16, 32, 0.8);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    color: #f8fafc;
+  }
+
+  .login-input::placeholder {
+    color: #64748b;
+  }
+
+  .login-input:focus-visible {
+    border-color: rgba(34, 211, 238, 0.5);
+    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.15);
+  }
+
+  .landing-blob {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(80px);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .landing-blob-a {
+    width: 420px;
+    height: 420px;
+    top: -120px;
+    right: -80px;
+    background: radial-gradient(circle, rgba(59, 130, 246, 0.22) 0%, transparent 70%);
+    animation: landing-float 12s ease-in-out infinite;
+  }
+
+  .landing-blob-b {
+    width: 360px;
+    height: 360px;
+    bottom: 10%;
+    left: -100px;
+    background: radial-gradient(circle, rgba(99, 102, 241, 0.18) 0%, transparent 70%);
+    animation: landing-float 14s ease-in-out infinite reverse;
+  }
+
+  .landing-blob-c {
+    width: 280px;
+    height: 280px;
+    background: radial-gradient(circle, rgba(34, 211, 238, 0.2) 0%, transparent 70%);
+  }
+
+  .landing-fade-in {
+    animation: landing-fade-in 0.7s ease-out both;
+  }
+
+  .landing-delay-1 { animation-delay: 0.1s; }
+  .landing-delay-2 { animation-delay: 0.2s; }
+  .landing-delay-3 { animation-delay: 0.3s; }
+  .landing-delay-4 { animation-delay: 0.4s; }
+
+  .dashboard-header {
+    background: rgba(6, 11, 20, 0.85);
+    border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+    backdrop-filter: blur(12px);
+  }
+}
+
+@keyframes landing-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes landing-float {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(20px, -16px); }
 }

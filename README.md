@@ -78,7 +78,9 @@ npm test -- --run
 
 ## Documentation
 
+- [Master Documentation](docs/MASTER_DOCUMENTATION.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [API Design](docs/API.md)
 - [Diagrams](docs/DIAGRAMS.md)
 - [Threat Model](docs/THREAT_MODEL.md)
+- [Project Status](STATUS.md)

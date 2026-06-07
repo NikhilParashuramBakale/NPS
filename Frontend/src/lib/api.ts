@@ -25,10 +25,26 @@ export const getCameraStreamUrl = (cameraId: number, sourceUrl?: string | null) 
   return qs ? `${API_BASE_URL}/api/v1/cameras/${cameraId}/stream?${qs}` : `${API_BASE_URL}/api/v1/cameras/${cameraId}/stream`;
 };
 
-export const getCameraCapabilityStreamUrl = (cameraId: number, capabilityToken: string, nonce: string) => {
-  const token = encodeURIComponent(capabilityToken);
-  const encodedNonce = encodeURIComponent(nonce);
-  return `${API_BASE_URL}/api/v1/cameras/${cameraId}/stream?capability_token=${token}&nonce=${encodedNonce}`;
+export const getCameraCapabilityStreamUrl = (cameraId: number, capabilityToken: string, sourceUrl?: string | null) => {
+  const params = new URLSearchParams();
+  if (authToken) params.append("token", authToken);
+  params.append("capability_token", capabilityToken);
+  if (sourceUrl) {
+    let hash = 0;
+    for (let i = 0; i < sourceUrl.length; i++) {
+      hash = ((hash << 5) - hash) + sourceUrl.charCodeAt(i);
+      hash |= 0;
+    }
+    params.append("t", Math.abs(hash).toString());
+  }
+  return `${API_BASE_URL}/api/v1/cameras/${cameraId}/stream?${params.toString()}`;
+};
+
+export const getCameraCapabilityFrameUrl = (cameraId: number, capabilityToken: string) => {
+  const params = new URLSearchParams();
+  if (authToken) params.append("token", authToken);
+  params.append("capability_token", capabilityToken);
+  return `${API_BASE_URL}/api/v1/cameras/${cameraId}/frame?${params.toString()}`;
 };
 
 type LoginPayload = {

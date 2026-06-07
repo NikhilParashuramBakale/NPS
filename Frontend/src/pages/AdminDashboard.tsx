@@ -49,6 +49,11 @@ const AdminDashboard = () => {
   };
 
   const adminCameras = cameras.filter((c) => c.owner_id === null);
+
+  const liveFeedGridClass = (count: number) => {
+    if (count <= 1) return "grid grid-cols-1 gap-6 max-w-4xl w-full";
+    return "grid grid-cols-1 xl:grid-cols-2 gap-6";
+  };
   const unconfiguredAdminCameras = adminCameras.filter((c) => c.source_type === "unconfigured");
   const viewerCameras = cameras.filter((c) => c.owner_id !== null);
   const viewerNameFor = (id: number | null) => viewers.find((v) => v.id === id)?.username ?? "Viewer";
@@ -56,7 +61,7 @@ const AdminDashboard = () => {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <SecurityBar />
-      <header className="flex items-center justify-between border-b border-border bg-card px-4 sm:px-6 py-3">
+      <header className="dashboard-header flex items-center justify-between px-4 sm:px-6 py-3">
         <div className="flex items-center gap-2">
           <Shield className="h-5 w-5 text-primary" />
           <h1 className="font-semibold">Admin Dashboard</h1>
@@ -90,7 +95,7 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      <div className="grid flex-1 grid-cols-1 lg:grid-cols-[320px_1fr_340px] gap-5 p-4 sm:p-6 bg-secondary/10">
+      <div className="grid flex-1 grid-cols-1 gap-5 bg-secondary/10 p-4 sm:p-6 lg:grid-cols-[minmax(240px,280px)_minmax(0,1fr)_minmax(260px,320px)]">
         {/* Left: Cameras */}
         <aside className="rounded-xl border border-border bg-card shadow-sm p-4 flex flex-col">
           <div className="flex items-center gap-2 mb-4">
@@ -125,26 +130,26 @@ const AdminDashboard = () => {
         </aside>
 
         {/* Center: Grid */}
-        <main className="rounded-lg border border-border bg-card p-4">
-          <h2 className="font-medium text-sm mb-3">Live Feeds</h2>
+        <main className="min-w-0 rounded-2xl border border-white/10 bg-card/80 p-5 shadow-md">
+          <h2 className="mb-4 text-base font-semibold">Live Feeds</h2>
           <div className="mb-4 flex flex-wrap gap-2">
             <Button asChild size="sm" variant="outline"><Link to="/security-dashboard"><Activity className="h-4 w-4 mr-1" />Security Dashboard</Link></Button>
             <Button asChild size="sm" variant="outline"><Link to="/audit-logs"><ClipboardCheck className="h-4 w-4 mr-1" />Audit Logs</Link></Button>
             <Button asChild size="sm" variant="outline"><Link to="/security-events">Security Events</Link></Button>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {cameras.map((c) => {
+          <div className={`${liveFeedGridClass(adminCameras.length)} ${adminCameras.length === 1 ? "mx-auto" : ""}`}>
+            {adminCameras.map((c) => {
               const preview = c.source_type === "ip_mjpeg" && c.source_url
-                ? <img src={getCameraStreamUrl(c.id, c.source_url)} alt={`${c.name} feed`} className="absolute inset-0 h-full w-full object-cover" />
+                ? <img src={getCameraStreamUrl(c.id, c.source_url)} alt={`${c.name} feed`} className="h-full w-full object-cover" />
                 : c.source_type === "admin_local" || c.source_type === "viewer_local"
-                  ? <AdminLocalPreview cameraId={c.id} />
+                  ? <AdminLocalPreview cameraId={c.id} objectFit="cover" />
                   : null;
               return (
                 <CameraTile
                   key={c.id}
                   name={c.name}
                   status={c.status}
-                  height="h-44"
+                  variant="card"
                   preview={preview}
                   onExpand={() => setExpandedId(c.id)}
                 />
@@ -343,7 +348,7 @@ const AdminDashboard = () => {
       </div>
 
       <Dialog open={expandedId !== null} onOpenChange={(open) => { if (!open) setExpandedId(null); }}>
-        <DialogContent className="bg-card max-w-4xl">
+        <DialogContent className="max-w-5xl bg-card p-4 sm:p-6">
           {expandedCamera && (
             <div className="space-y-4">
               <DialogHeader>
@@ -352,11 +357,11 @@ const AdminDashboard = () => {
               <CameraTile
                 name={expandedCamera.name}
                 status={expandedCamera.status}
-                height="h-[420px]"
+                variant="expanded"
                 preview={expandedCamera.source_type === "ip_mjpeg" && expandedCamera.source_url
-                  ? <img src={getCameraStreamUrl(expandedCamera.id, expandedCamera.source_url)} alt={`${expandedCamera.name} feed`} className="absolute inset-0 h-full w-full object-contain" />
+                  ? <img src={getCameraStreamUrl(expandedCamera.id, expandedCamera.source_url)} alt={`${expandedCamera.name} feed`} className="h-full w-full object-contain" />
                   : expandedCamera.source_type === "admin_local" || expandedCamera.source_type === "viewer_local"
-                    ? <AdminLocalPreview cameraId={expandedCamera.id} />
+                    ? <AdminLocalPreview cameraId={expandedCamera.id} objectFit="contain" />
                     : null
                 }
               />
