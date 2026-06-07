@@ -228,6 +228,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export const fetchHealth = () => request<{ status: string }>("/health");
+
 export const loginRequest = (payload: LoginPayload) =>
   request<LoginResponse>("/api/v1/auth/login", {
     method: "POST",

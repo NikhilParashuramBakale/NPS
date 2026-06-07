@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Shield,
@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/context/AppContext";
+import { fetchHealth } from "@/lib/api";
 
 const flowSteps = [
   "PAKE Login",
@@ -72,6 +73,30 @@ const roles = [
 const LandingPage = () => {
   const { user, initialized } = useApp();
   const navigate = useNavigate();
+  const [backendStatus, setBackendStatus] = useState<"LIVE" | "OFFLINE" | "CHECKING">("CHECKING");
+
+  useEffect(() => {
+    let isMounted = true;
+    const checkHealth = async () => {
+      try {
+        const resp = await fetchHealth();
+        if (isMounted) {
+          setBackendStatus(resp.status === "ok" ? "LIVE" : "OFFLINE");
+        }
+      } catch (err) {
+        if (isMounted) {
+          setBackendStatus("OFFLINE");
+        }
+      }
+    };
+
+    checkHealth();
+    const interval = setInterval(checkHealth, 3000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     if (!initialized || !user) return;
@@ -84,6 +109,21 @@ const LandingPage = () => {
   };
 
   if (!initialized) return null;
+
+  const StatusBadge = () => (
+    <div className={`flex items-center gap-1.5 rounded px-2 py-0.5 text-[10px] font-bold tracking-wider ${
+      backendStatus === "LIVE" 
+        ? "bg-emerald-500/10 text-emerald-500 ring-1 ring-emerald-500/30" 
+        : backendStatus === "OFFLINE"
+        ? "bg-red-500/10 text-red-500 ring-1 ring-red-500/30"
+        : "bg-white/5 text-[#94A3B8] ring-1 ring-white/10"
+    }`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${
+        backendStatus === "LIVE" ? "animate-pulse bg-emerald-500" : backendStatus === "OFFLINE" ? "bg-red-500" : "bg-white/30"
+      }`} />
+      {backendStatus}
+    </div>
+  );
 
   return (
     <div className="landing-page min-h-screen text-[#F8FAFC] overflow-x-hidden">
@@ -101,9 +141,12 @@ const LandingPage = () => {
               <p className="text-[10px] uppercase tracking-[0.2em] text-[#94A3B8]">Zero-Trust Surveillance</p>
             </div>
           </div>
-          <Button asChild className="landing-cta-primary h-10 px-5">
-            <Link to="/login">Access Secure Console</Link>
-          </Button>
+          <div className="flex items-center gap-4">
+            <StatusBadge />
+            <Button asChild className="landing-cta-primary h-10 px-5">
+              <Link to="/login">Access Secure Console</Link>
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -124,13 +167,16 @@ const LandingPage = () => {
             <p className="max-w-xl text-lg leading-relaxed text-[#94A3B8]">
               PAKE-authenticated camera access with capability tokens, replay protection, audit trails, and time-bound permissions.
             </p>
-            <div className="flex flex-wrap gap-4">
-              <Button asChild size="lg" className="landing-cta-primary h-12 px-8 text-base">
-                <Link to="/login">
-                  Access Secure Console
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex flex-col gap-2">
+                <Button asChild size="lg" className="landing-cta-primary h-12 px-8 text-base">
+                  <Link to="/login">
+                    Access Secure Console
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+               
+              </div>
               <Button size="lg" variant="outline" className="landing-cta-secondary h-12 px-8 text-base" onClick={scrollToWorkflow}>
                 View Security Flow
               </Button>
