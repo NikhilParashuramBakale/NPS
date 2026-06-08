@@ -8,16 +8,6 @@ tags: []
 
 Final year Network Security project for a residential apartment surveillance workflow.
 
-## Demo Users
-
-| Username | Password | Role |
-| --- | --- | --- |
-| `admin_user` | `admin123` | Admin |
-| `resident_a` | `resident123` | Resident |
-| `resident_b` | `resident123` | Resident |
-| `guard_a` | `guard123` | Security Guard |
-
-Legacy demo users `viewer_a` and `viewer_b` are retained for backward compatibility.
 
 ## Demo Cameras
 
