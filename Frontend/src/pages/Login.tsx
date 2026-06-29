@@ -89,11 +89,11 @@ const Login = () => {
           <div className="space-y-3">
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-500/15 ring-1 ring-blue-400/30">
-                <Terminal className="h-5 w-5 text-[#22D3EE]" />
+                <Terminal className="landing-accent h-5 w-5" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-[#F8FAFC]">Secure Console</h1>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#94A3B8]">
+                <h1 className="landing-fg text-2xl font-bold tracking-tight">Secure Console</h1>
+                <p className="landing-muted text-[10px] font-semibold uppercase tracking-[0.2em]">
                   PAKE Authentication Terminal
                 </p>
               </div>
@@ -102,11 +102,11 @@ const Login = () => {
 
           <div className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="username" className="text-[11px] font-bold uppercase tracking-wider text-[#94A3B8]">
+              <Label htmlFor="username" className="landing-muted text-[11px] font-bold uppercase tracking-wider">
                 Identity
               </Label>
               <div className="relative">
-                <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#64748B]" />
+                <User className="landing-subtle absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
                 <Input
                   id="username"
                   value={username}
@@ -117,11 +117,11 @@ const Login = () => {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-[11px] font-bold uppercase tracking-wider text-[#94A3B8]">
+              <Label htmlFor="password" className="landing-muted text-[11px] font-bold uppercase tracking-wider">
                 Passphrase
               </Label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#64748B]" />
+                <Lock className="landing-subtle absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
                 <Input
                   id="password"
                   type="password"
@@ -134,7 +134,7 @@ const Login = () => {
             </div>
 
             {error && (
-              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm font-medium text-red-300">
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm font-medium text-red-600 dark:text-red-300">
                 {error}
               </div>
             )}
@@ -164,9 +164,9 @@ const Login = () => {
             </div>
           </div>
 
-          <div className="flex items-center justify-between border-t border-white/10 pt-6 text-[10px] font-bold uppercase tracking-[0.15em] text-[#64748B]">
+          <div className="landing-divider landing-subtle flex items-center justify-between border-t pt-6 text-[10px] font-bold uppercase tracking-[0.15em]">
             <span className="flex items-center gap-2">
-              Protocol <span className="font-mono text-[#22D3EE]">SPAKE2</span>
+              Protocol <span className="landing-accent font-mono">SPAKE2</span>
             </span>
             <span className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-[#22C55E]" /> Encrypted handshake
@@ -176,12 +176,12 @@ const Login = () => {
 
         <div className={`transition-all duration-700 ${showViz ? "opacity-100 translate-y-0" : "opacity-40 translate-y-2"}`}>
           <div className="glass-card glow-border p-8 sm:p-10">
-            <div className="mb-8 flex items-center justify-between border-b border-white/10 pb-6">
-              <h2 className="flex items-center gap-3 text-lg font-bold text-[#F8FAFC]">
-                <Activity className="h-5 w-5 text-[#22D3EE]" />
+            <div className="landing-divider mb-8 flex items-center justify-between border-b pb-6">
+              <h2 className="landing-fg flex items-center gap-3 text-lg font-bold">
+                <Activity className="landing-accent h-5 w-5" />
                 Cryptographic Handshake Sequence
               </h2>
-              <span className="rounded-full bg-cyan-500/15 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-[#22D3EE] ring-1 ring-cyan-400/25">
+              <span className="landing-accent rounded-full bg-cyan-500/15 px-3 py-1 text-[10px] font-bold uppercase tracking-widest ring-1 ring-cyan-400/25">
                 {showViz ? "Live Analysis" : "Standby"}
               </span>
             </div>
@@ -190,40 +190,40 @@ const Login = () => {
               {pakeSteps.map((step, idx) => (
                 <div key={step.id} className="relative">
                   {idx !== pakeSteps.length - 1 && (
-                    <div className="absolute left-3 top-8 h-full w-px bg-white/10" />
+                    <div className="landing-divider absolute left-3 top-8 h-full w-px bg-current opacity-20" />
                   )}
                   <div className="flex gap-5">
                     <div className="relative z-10 mt-1">
                       {step.status === "completed" ? (
                         <CheckCircle2 className="h-6 w-6 text-[#22C55E]" />
                       ) : step.status === "active" ? (
-                        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#22D3EE] border-t-transparent" />
+                        <div className="landing-accent h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
                       ) : step.status === "error" ? (
                         <div className="flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
                           !
                         </div>
                       ) : (
-                        <Circle className="h-6 w-6 text-[#334155]" />
+                        <Circle className="landing-subtle h-6 w-6 opacity-60" />
                       )}
                     </div>
                     <div className="flex-1 pb-4">
                       <div className="mb-1 flex items-center gap-3">
-                        <span className="font-mono text-[10px] text-[#64748B]">STEP 0{step.id}</span>
+                        <span className="landing-subtle font-mono text-[10px]">STEP 0{step.id}</span>
                         <h3
                           className={`text-sm font-bold uppercase tracking-wider ${
-                            step.status === "active" ? "text-[#22D3EE]" : "text-[#F8FAFC]"
+                            step.status === "active" ? "landing-accent" : "landing-fg"
                           }`}
                         >
                           {step.label}
                         </h3>
                       </div>
-                      <p className="mb-3 text-[13px] leading-relaxed text-[#94A3B8]">{step.description}</p>
+                      <p className="landing-muted mb-3 text-[13px] leading-relaxed">{step.description}</p>
                       {step.data && (
-                        <div className="space-y-2 overflow-hidden rounded-lg border border-white/10 bg-black/30 p-4 font-mono text-[10px] text-[#94A3B8]">
+                        <div className="login-code-block space-y-2 overflow-hidden rounded-lg p-4 font-mono text-[10px]">
                           {Object.entries(step.data).map(([key, val]) => (
-                            <div key={key} className="flex gap-4 border-b border-white/5 pb-1 last:border-0 last:pb-0">
-                              <span className="w-24 shrink-0 select-none text-[#64748B]">{key}</span>
-                              <span className="truncate font-semibold text-[#22D3EE]" title={val}>
+                            <div key={key} className="landing-divider flex gap-4 border-b pb-1 last:border-0 last:pb-0">
+                              <span className="landing-subtle w-24 shrink-0 select-none">{key}</span>
+                              <span className="landing-accent truncate font-semibold" title={val}>
                                 {val}
                               </span>
                             </div>
@@ -237,8 +237,8 @@ const Login = () => {
             </div>
 
             <div className="mt-4 rounded-xl border-l-4 border-l-[#3B82F6] bg-blue-500/5 p-5">
-              <p className="text-[12px] italic leading-relaxed text-[#94A3B8]">
-                <strong className="text-[#F8FAFC]">Security note:</strong> The password is never sent in plaintext. It is used
+              <p className="landing-muted text-[12px] italic leading-relaxed">
+                <strong className="landing-fg">Security note:</strong> The password is never sent in plaintext. It is used
                 locally to compute the cryptographic messages shown above.
               </p>
             </div>

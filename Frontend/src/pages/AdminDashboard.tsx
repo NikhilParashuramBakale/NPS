@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useApp, formatTime } from "@/context/AppContext";
 import { SecurityBar } from "@/components/SecurityBar";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { CameraTile } from "@/components/CameraTile";
 import { AssignmentDialog } from "@/components/AssignmentDialog";
 import { UserDialog } from "@/components/UserDialog";
@@ -69,9 +70,12 @@ const AdminDashboard = () => {
             • {user?.username}
           </span>
         </div>
-        <Button variant="ghost" size="sm" onClick={handleLogout}>
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <Button variant="ghost" size="sm" onClick={handleLogout}>
           <LogOut className="h-4 w-4 mr-1" /> Logout
         </Button>
+        </div>
       </header>
 
       {unconfiguredAdminCameras.length > 0 && (

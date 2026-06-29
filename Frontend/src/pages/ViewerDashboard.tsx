@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useApp, formatTime, type Camera } from "@/context/AppContext";
 import { SecurityBar } from "@/components/SecurityBar";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { CameraTile } from "@/components/CameraTile";
 import { AdminLocalPreview } from "@/components/AdminLocalPreview";
 import { ViewerCameraDialog } from "@/components/ViewerCameraDialog";
@@ -224,9 +225,12 @@ const ViewerDashboard = () => {
             • {user?.username}
           </span>
         </div>
-        <Button variant="ghost" size="sm" onClick={handleLogout}>
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <Button variant="ghost" size="sm" onClick={handleLogout}>
           <LogOut className="h-4 w-4 mr-1" /> Logout
         </Button>
+        </div>
       </header>
 
       <main className="flex-1 p-4 sm:p-6">

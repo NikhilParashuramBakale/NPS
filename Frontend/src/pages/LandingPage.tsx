@@ -13,6 +13,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { useApp } from "@/context/AppContext";
 import { fetchHealth } from "@/lib/api";
 
@@ -116,33 +117,34 @@ const LandingPage = () => {
         ? "bg-emerald-500/10 text-emerald-500 ring-1 ring-emerald-500/30" 
         : backendStatus === "OFFLINE"
         ? "bg-red-500/10 text-red-500 ring-1 ring-red-500/30"
-        : "bg-white/5 text-[#94A3B8] ring-1 ring-white/10"
+        : "bg-slate-100 text-slate-500 ring-1 ring-slate-200 dark:bg-white/5 dark:text-[#94A3B8] dark:ring-white/10"
     }`}>
       <span className={`h-1.5 w-1.5 rounded-full ${
-        backendStatus === "LIVE" ? "animate-pulse bg-emerald-500" : backendStatus === "OFFLINE" ? "bg-red-500" : "bg-white/30"
+        backendStatus === "LIVE" ? "animate-pulse bg-emerald-500" : backendStatus === "OFFLINE" ? "bg-red-500" : "bg-slate-400 dark:bg-white/30"
       }`} />
       {backendStatus}
     </div>
   );
 
   return (
-    <div className="landing-page min-h-screen text-[#F8FAFC] overflow-x-hidden">
+    <div className="landing-page min-h-screen overflow-x-hidden">
       <div className="landing-blob landing-blob-a" />
       <div className="landing-blob landing-blob-b" />
 
-      <header className="relative z-20 border-b border-white/10 bg-[#060B14]/80 backdrop-blur-xl">
+      <header className="landing-header-bar relative z-20">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/15 ring-1 ring-blue-400/30">
-              <Shield className="h-5 w-5 text-[#22D3EE]" />
+              <Shield className="landing-accent h-5 w-5" />
             </div>
             <div>
               <p className="text-sm font-semibold tracking-wide">SecureCam</p>
-              <p className="text-[10px] uppercase tracking-[0.2em] text-[#94A3B8]">Zero-Trust Surveillance</p>
+              <p className="landing-muted text-[10px] uppercase tracking-[0.2em]">Zero-Trust Surveillance</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             <StatusBadge />
+            <ThemeToggle />
             <Button asChild className="landing-cta-primary h-10 px-5">
               <Link to="/login">Access Secure Console</Link>
             </Button>
@@ -154,7 +156,7 @@ const LandingPage = () => {
         {/* Hero */}
         <section className="mx-auto grid max-w-7xl gap-12 px-6 pb-20 pt-16 lg:grid-cols-2 lg:items-center lg:pt-24">
           <div className="landing-fade-in space-y-8">
-            <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-4 py-1.5 text-xs font-medium text-[#22D3EE]">
+            <div className="landing-accent inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-4 py-1.5 text-xs font-medium">
               <Sparkles className="h-3.5 w-3.5" />
               Enterprise-grade zero-trust access
             </div>
@@ -164,7 +166,7 @@ const LandingPage = () => {
                 Surveillance Access
               </span>
             </h1>
-            <p className="max-w-xl text-lg leading-relaxed text-[#94A3B8]">
+            <p className="landing-muted max-w-xl text-lg leading-relaxed">
               PAKE-authenticated camera access with capability tokens, replay protection, audit trails, and time-bound permissions.
             </p>
             <div className="flex flex-wrap items-center gap-4">
@@ -185,23 +187,23 @@ const LandingPage = () => {
 
           <div className="landing-fade-in landing-delay-1">
             <div className="glass-card glow-border p-6 sm:p-8">
-              <p className="mb-6 text-xs font-semibold uppercase tracking-[0.25em] text-[#94A3B8]">Live security pipeline</p>
+              <p className="landing-muted mb-6 text-xs font-semibold uppercase tracking-[0.25em]">Live security pipeline</p>
               <div className="space-y-3">
                 {flowSteps.map((step, i) => (
                   <div key={step} className="flex items-center gap-4">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/15 text-xs font-bold text-[#22D3EE] ring-1 ring-blue-400/25">
+                    <div className="landing-accent flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/15 text-xs font-bold ring-1 ring-blue-400/25">
                       {i + 1}
                     </div>
-                    <div className="flex-1 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium">
+                    <div className="landing-panel flex-1 rounded-lg px-4 py-3 text-sm font-medium">
                       {step}
                     </div>
                     {i < flowSteps.length - 1 && (
-                      <ChevronRight className="hidden h-4 w-4 text-[#64748B] sm:block" />
+                      <ChevronRight className="landing-subtle hidden h-4 w-4 sm:block" />
                     )}
                   </div>
                 ))}
               </div>
-              <div className="mt-6 flex items-center gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+              <div className="mt-6 flex items-center gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-[#22C55E]" />
                 Enforcement active — capability required for assigned feeds
               </div>
@@ -214,9 +216,9 @@ const LandingPage = () => {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {trustFeatures.map(({ icon: Icon, label, desc }, i) => (
               <div key={label} className={`glass-card landing-card-hover landing-fade-in landing-delay-${i + 1} p-5`}>
-                <Icon className="mb-3 h-5 w-5 text-[#22D3EE]" />
+                <Icon className="landing-accent mb-3 h-5 w-5" />
                 <p className="font-semibold">{label}</p>
-                <p className="mt-1 text-sm text-[#94A3B8]">{desc}</p>
+                <p className="landing-muted mt-1 text-sm">{desc}</p>
               </div>
             ))}
           </div>
@@ -226,14 +228,14 @@ const LandingPage = () => {
         <section className="mx-auto max-w-7xl px-6 py-16">
           <div className="mb-10 text-center">
             <h2 className="text-3xl font-bold">Built for defensible access</h2>
-            <p className="mt-3 text-[#94A3B8]">Every layer separates identity, authorization, and viewing permission.</p>
+            <p className="landing-muted mt-3">Every layer separates identity, authorization, and viewing permission.</p>
           </div>
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {featureCards.map((card) => (
               <div key={card.title} className="glass-card landing-card-hover p-6">
-                <Lock className="mb-3 h-4 w-4 text-[#3B82F6]" />
+                <Lock className="landing-accent-blue mb-3 h-4 w-4" />
                 <h3 className="font-semibold">{card.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-[#94A3B8]">{card.body}</p>
+                <p className="landing-muted mt-2 text-sm leading-relaxed">{card.body}</p>
               </div>
             ))}
           </div>
@@ -243,13 +245,13 @@ const LandingPage = () => {
         <section id="workflow" className="mx-auto max-w-7xl px-6 py-16">
           <div className="mb-10 text-center">
             <h2 className="text-3xl font-bold">End-to-end security workflow</h2>
-            <p className="mt-3 text-[#94A3B8]">From authentication to camera unlock — no shortcuts.</p>
+            <p className="landing-muted mt-3">From authentication to camera unlock — no shortcuts.</p>
           </div>
           <div className="glass-card glow-border p-6 sm:p-10">
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               {workflow.map((step, i) => (
-                <div key={step} className="relative rounded-xl border border-white/10 bg-white/[0.03] p-4 landing-card-hover">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-[#64748B]">Step {i + 1}</span>
+                <div key={step} className="landing-panel landing-card-hover relative rounded-xl p-4">
+                  <span className="landing-subtle text-[10px] font-bold uppercase tracking-widest">Step {i + 1}</span>
                   <p className="mt-2 text-sm font-medium leading-snug">{step}</p>
                 </div>
               ))}
@@ -261,19 +263,19 @@ const LandingPage = () => {
         <section className="mx-auto max-w-7xl px-6 py-16">
           <div className="mb-10 text-center">
             <h2 className="text-3xl font-bold">Role-aware access</h2>
-            <p className="mt-3 text-[#94A3B8]">Each persona sees only what their assignment allows.</p>
+            <p className="landing-muted mt-3">Each persona sees only what their assignment allows.</p>
           </div>
           <div className="grid gap-6 lg:grid-cols-3">
             {roles.map((role) => (
               <div key={role.title} className={`glass-card landing-card-hover overflow-hidden`}>
                 <div className={`bg-gradient-to-br ${role.accent} px-6 py-5`}>
-                  <UserCheck className="h-5 w-5 text-[#22D3EE]" />
+                  <UserCheck className="landing-accent h-5 w-5" />
                   <h3 className="mt-2 text-xl font-bold">{role.title}</h3>
                 </div>
-                <ul className="space-y-3 px-6 py-5 text-sm text-[#94A3B8]">
+                <ul className="landing-muted space-y-3 px-6 py-5 text-sm">
                   {role.items.map((item) => (
                     <li key={item} className="flex items-start gap-2">
-                      <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#3B82F6]" />
+                      <KeyRound className="landing-accent-blue mt-0.5 h-3.5 w-3.5 shrink-0" />
                       {item}
                     </li>
                   ))}
@@ -288,7 +290,7 @@ const LandingPage = () => {
           <div className="glass-card glow-border relative overflow-hidden px-8 py-14 text-center">
             <div className="landing-blob landing-blob-c absolute -right-20 -top-20 opacity-40" />
             <h2 className="relative text-3xl font-bold sm:text-4xl">Ready to enter the secure console?</h2>
-            <p className="relative mx-auto mt-4 max-w-lg text-[#94A3B8]">
+            <p className="landing-muted relative mx-auto mt-4 max-w-lg">
               Authenticate with PAKE, request access, and view cameras only after capability validation.
             </p>
             <Button asChild size="lg" className="landing-cta-primary relative mt-8 h-12 px-10 text-base">
@@ -301,7 +303,7 @@ const LandingPage = () => {
         </section>
       </main>
 
-      <footer className="relative z-10 border-t border-white/10 px-6 py-8 text-center text-xs text-[#64748B]">
+      <footer className="landing-divider landing-subtle relative z-10 border-t px-6 py-8 text-center text-xs">
         SecureCam · Zero-Trust Smart Surveillance Access System · PAKE + Capability Tokens
       </footer>
     </div>
