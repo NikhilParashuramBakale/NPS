@@ -13,6 +13,7 @@ import { UserDialog } from "@/components/UserDialog";
 import { CameraSourceDialog } from "@/components/CameraSourceDialog";
 import { AdminLocalPreview } from "@/components/AdminLocalPreview";
 import { AdminLocalStreamer } from "@/components/AdminLocalStreamer";
+import { MJPEGRelayStreamer } from "@/components/MJPEGRelayStreamer";
 import { approveAccessRequest, fetchPendingRequests, getCameraStreamUrl, rejectAccessRequest, type AccessRequest } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -124,8 +125,11 @@ const AdminDashboard = () => {
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {c.source_type === "admin_local" && <AdminLocalStreamer cameraId={c.id} />}
+                  {c.source_type === "ip_mjpeg" && c.source_url && (
+                    <MJPEGRelayStreamer cameraId={c.id} cameraName={c.name} sourceUrl={c.source_url} />
+                  )}
                   {c.owner_id === null && <CameraSourceDialog camera={c} />}
                 </div>
               </li>

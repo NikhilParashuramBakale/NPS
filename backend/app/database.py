@@ -116,8 +116,67 @@ def ensure_security_project_columns() -> None:
                 conn.execute(text("ALTER TABLE security_events ADD COLUMN category VARCHAR(64)"))
             if "description" not in event_columns:
                 conn.execute(text("ALTER TABLE security_events ADD COLUMN description TEXT"))
-            conn.execute(text("UPDATE security_events SET severity = 'low' WHERE severity IS NULL"))
-            conn.execute(text("UPDATE security_events SET category = 'general' WHERE category IS NULL"))
-            conn.execute(text("UPDATE security_events SET description = event_type WHERE description IS NULL"))
+        conn.execute(text("UPDATE security_events SET severity = 'low' WHERE severity IS NULL"))
+        conn.execute(text("UPDATE security_events SET category = 'general' WHERE category IS NULL"))
+        conn.execute(text("UPDATE security_events SET description = event_type WHERE description IS NULL"))
 
+        conn.commit()
+
+
+def ensure_wireguard_tunnel_table() -> None:
+    if engine.dialect.name != "sqlite":
+        return
+
+    with engine.connect() as conn:
+        try:
+            rows = conn.execute(text("PRAGMA table_info(wireguard_tunnels)")).mappings().all()
+        except Exception:  # noqa: BLE001
+            return
+
+        columns = {row["name"] for row in rows}
+        if not columns:
+            conn.execute(text(
+                "CREATE TABLE wireguard_tunnels ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "camera_id INTEGER NOT NULL UNIQUE REFERENCES cameras(id), "
+                "interface_name VARCHAR(64) NOT NULL UNIQUE, "
+                "listen_port INTEGER NOT NULL, "
+                "private_key VARCHAR(128) NOT NULL, "
+                "peer_public_key VARCHAR(128) NOT NULL, "
+                "peer_endpoint VARCHAR(128) NOT NULL, "
+                "allowed_ips VARCHAR(64) DEFAULT '10.0.0.2/32', "
+                "is_active BOOLEAN DEFAULT 0, "
+                "bytes_sent INTEGER DEFAULT 0, "
+                "bytes_received INTEGER DEFAULT 0, "
+                "latest_handshake DATETIME, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text(
+                "CREATE INDEX ix_wireguard_tunnels_camera_id "
+                "ON wireguard_tunnels(camera_id)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX ix_wireguard_tunnels_interface_name "
+                "ON wireguard_tunnels(interface_name)"
+            ))
+        conn.commit()
+
+
+def ensure_camera_discovery_columns() -> None:
+    if engine.dialect.name != "sqlite":
+        return
+
+    with engine.connect() as conn:
+        try:
+            rows = conn.execute(text("PRAGMA table_info(cameras)")).mappings().all()
+        except Exception:  # noqa: BLE001
+            return
+
+        columns = {row["name"] for row in rows}
+        if "discovered_at" not in columns:
+            conn.execute(text("ALTER TABLE cameras ADD COLUMN discovered_at DATETIME"))
+        if "discovered_by_mdns" not in columns:
+            conn.execute(text("ALTER TABLE cameras ADD COLUMN discovered_by_mdns BOOLEAN DEFAULT 0"))
         conn.commit()

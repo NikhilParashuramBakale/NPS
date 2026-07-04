@@ -22,6 +22,15 @@ class Settings(BaseSettings):
     pake_scrypt_p: int = 1
     pake_session_ttl_seconds: int = 300
 
+    # WireGuard settings
+    wireguard_backend: str = "auto"  # "auto" | "real" | "sim"
+    wireguard_base_port: int = 51820
+    wireguard_config_dir: str = "/etc/wireguard"
+    wireguard_interface_prefix: str = "wg-cam"
+
+    # mDNS Discovery settings
+    mdns_discovery_enabled: bool = False
+
     model_config = SettingsConfigDict(env_file=_env_files(), extra="ignore")
 
     @property

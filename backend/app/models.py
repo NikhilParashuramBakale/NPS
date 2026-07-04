@@ -54,6 +54,8 @@ class Camera(Base):
     is_active: Mapped[bool] = mapped_column(default=True)
     share_requested: Mapped[bool] = mapped_column(default=False)
     share_approved: Mapped[bool] = mapped_column(default=True)
+    discovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    discovered_by_mdns: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=datetime.utcnow)
 
 
@@ -140,3 +142,22 @@ class UsedNonce(Base):
     purpose: Mapped[str] = mapped_column(String(64), default="capability")
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=datetime.utcnow, index=True)
+
+
+class WireGuardTunnelConfig(Base):
+    __tablename__ = "wireguard_tunnels"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    camera_id: Mapped[int] = mapped_column(ForeignKey("cameras.id"), unique=True, index=True)
+    interface_name: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    listen_port: Mapped[int] = mapped_column(Integer)
+    private_key: Mapped[str] = mapped_column(String(128))
+    peer_public_key: Mapped[str] = mapped_column(String(128))
+    peer_endpoint: Mapped[str] = mapped_column(String(128))
+    allowed_ips: Mapped[str] = mapped_column(String(64), default="10.0.0.2/32")
+    is_active: Mapped[bool] = mapped_column(default=False)
+    bytes_sent: Mapped[int] = mapped_column(Integer, default=0)
+    bytes_received: Mapped[int] = mapped_column(Integer, default=0)
+    latest_handshake: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=datetime.utcnow, onupdate=datetime.utcnow)

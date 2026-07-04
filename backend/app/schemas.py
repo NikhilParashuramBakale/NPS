@@ -196,3 +196,58 @@ class SecurityDashboardOut(BaseModel):
     revoked_assignments: int
     recent_security_events: list[SecurityEventOut]
     recent_audit_logs: list[AuditLogOut]
+
+
+# ---------------------------------------------------------------------------
+# WireGuard Tunnel schemas
+# ---------------------------------------------------------------------------
+
+class TunnelCreateRequest(BaseModel):
+    peer_public_key: str = Field(..., min_length=8, max_length=128)
+    peer_endpoint: str = Field(..., min_length=5, max_length=128)
+    allowed_ips: str = Field(default="10.0.0.2/32", max_length=64)
+
+
+class TunnelCreateResponse(BaseModel):
+    camera_id: int
+    interface_name: str
+    listen_port: int
+    peer_public_key: str
+    peer_endpoint: str
+    allowed_ips: str
+    status: str = "created"
+
+
+class TunnelStatusOut(BaseModel):
+    camera_id: int
+    interface_name: str
+    is_active: bool
+    bytes_sent: int = 0
+    bytes_received: int = 0
+    latest_handshake: datetime | None = None
+    peer_endpoint: str | None = None
+    error_message: str | None = None
+
+
+class TunnelStatusListOut(BaseModel):
+    tunnels: list[TunnelStatusOut]
+
+
+# ---------------------------------------------------------------------------
+# mDNS Discovery schemas
+# ---------------------------------------------------------------------------
+
+class DiscoveryStatusOut(BaseModel):
+    is_running: bool
+    discovered_count: int = 0
+    recently_discovered: list[dict] = Field(default_factory=list)
+
+
+class DiscoveryCameraActivate(BaseModel):
+    camera_id: int = Field(..., ge=1)
+
+
+class ActivateCameraResponse(BaseModel):
+    status: str
+    camera_id: int
+    camera_name: str

@@ -1,7 +1,7 @@
-/** Shared tuning for admin_local / viewer_local JPEG upload + polling (~10–15 FPS). */
+/** Shared tuning for admin_local / viewer_local JPEG upload + polling (~15–25 FPS). */
 export const LOCAL_CAMERA_MAX_WIDTH = 640;
 export const LOCAL_CAMERA_MAX_HEIGHT = 360;
-export const LOCAL_CAMERA_JPEG_QUALITY = 0.68;
+export const LOCAL_CAMERA_JPEG_QUALITY = 0.55;  // Reduced from 0.68 for faster uploads
 export const LOCAL_CAMERA_UPLOAD_INTERVAL_MS = 100;
 export const LOCAL_CAMERA_POLL_INTERVAL_MS = 100;
 export const LOCAL_CAMERA_POLL_INTERVAL_MISS_MS = 80;

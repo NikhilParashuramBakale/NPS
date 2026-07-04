@@ -1,4 +1,4 @@
-import asyncio
+'''  '''import asyncio
 import contextlib
 from datetime import UTC, datetime, timedelta
 import logging
@@ -40,9 +40,11 @@ from .database import (
     Base,
     SessionLocal,
     engine,
+    ensure_camera_discovery_columns,
     ensure_camera_source_columns,
     ensure_security_project_columns,
     ensure_user_pake_columns,
+    ensure_wireguard_tunnel_table,
     get_db,
 )
 from .deps import get_current_user, get_current_user_from_token, require_admin
@@ -58,12 +60,14 @@ from .models import (
     SecurityEvent,
     User,
     UserRole,
+    WireGuardTunnelConfig,
 )
 from .pake_bridge import compute_verifier, finish_pake, generate_salt, pake_public_config, start_pake
 from .schemas import (
     AccessRequestCreate,
     AccessRequestOut,
     AccessRequestReview,
+    ActivateCameraResponse,
     AdminCameraAccessUpdate,
     AdminUserCreate,
     AssignmentCreate,
@@ -76,6 +80,8 @@ from .schemas import (
     CapabilityTokenOut,
     CapabilityValidateOut,
     CapabilityValidateRequest,
+    DiscoveryCameraActivate,
+    DiscoveryStatusOut,
     LoginRequest,
     LoginResponse,
     PakeFinishRequest,
@@ -86,8 +92,14 @@ from .schemas import (
     PakeUpgradeResponse,
     SecurityDashboardOut,
     SecurityEventOut,
+    TunnelCreateRequest,
+    TunnelCreateResponse,
+    TunnelStatusListOut,
+    TunnelStatusOut,
     UserOut,
 )
+from .wireguard_manager import wireguard_manager
+from .mdns_discovery import mdns_discovery_service
 from .seed import seed_data
 
 app = FastAPI(title="SecureCam Backend", version="0.1.0")
@@ -238,6 +250,8 @@ def startup() -> None:
     ensure_user_pake_columns()
     ensure_camera_source_columns()
     ensure_security_project_columns()
+    ensure_wireguard_tunnel_table()
+    ensure_camera_discovery_columns()
     with SessionLocal() as db:
         seed_data(db)
         prune_expired_assignments(db)
@@ -1359,4 +1373,294 @@ def reject_request(
         description=f"Access request {request_id} rejected.",
     )
     return _as_access_request_out(req, db)
+
+
+# ---------------------------------------------------------------------------
+# WireGuard Tunnel Management (admin only)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/v1/admin/cameras/{camera_id}/tunnel", response_model=TunnelCreateResponse)
+def create_camera_tunnel(
+    camera_id: int,
+    payload: TunnelCreateRequest,
+    admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> TunnelCreateResponse:
+    """Create a WireGuard tunnel for a camera feed."""
+    camera = db.get(Camera, camera_id)
+    if not camera:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
+
+    existing = db.scalar(
+        select(WireGuardTunnelConfig).where(WireGuardTunnelConfig.camera_id == camera_id)
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Tunnel already exists for this camera",
+        )
+
+    try:
+        config = wireguard_manager.create_tunnel(
+            camera_id=camera_id,
+            peer_public_key=payload.peer_public_key,
+            peer_endpoint=payload.peer_endpoint,
+            allowed_ips=payload.allowed_ips,
+        )
+    except RuntimeError as exc:
+        log_event(
+            db,
+            "WIREGUARD_TUNNEL_ERROR",
+            actor_username=admin_user.username,
+            severity="high",
+            category="network",
+            details={"camera_id": camera_id, "error": str(exc)},
+        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+
+    tunnel_record = WireGuardTunnelConfig(
+        camera_id=camera_id,
+        interface_name=config.interface_name,
+        listen_port=config.listen_port,
+        private_key=config.private_key,
+        peer_public_key=config.peer_public_key,
+        peer_endpoint=config.peer_endpoint,
+        allowed_ips=config.allowed_ips,
+        is_active=True,
+    )
+    db.add(tunnel_record)
+    db.commit()
+
+    log_event(
+        db,
+        "WIREGUARD_TUNNEL_CREATED",
+        actor_username=admin_user.username,
+        severity="medium",
+        category="network",
+        details={
+            "camera_id": camera_id,
+            "interface_name": config.interface_name,
+            "peer_endpoint": config.peer_endpoint,
+        },
+    )
+    write_audit_log(
+        db,
+        "WIREGUARD_TUNNEL_CREATED",
+        actor_id=admin_user.id,
+        target_id=str(camera_id),
+        description=f"WireGuard tunnel created for camera {camera.name} ({config.interface_name}).",
+    )
+
+    return TunnelCreateResponse(
+        camera_id=camera_id,
+        interface_name=config.interface_name,
+        listen_port=config.listen_port,
+        peer_public_key=config.peer_public_key,
+        peer_endpoint=config.peer_endpoint,
+        allowed_ips=config.allowed_ips,
+        status="created",
+    )
+
+
+@app.delete("/api/v1/admin/cameras/{camera_id}/tunnel")
+def destroy_camera_tunnel(
+    camera_id: int,
+    admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    """Destroy a WireGuard tunnel for a camera."""
+    tunnel = db.scalar(
+        select(WireGuardTunnelConfig).where(WireGuardTunnelConfig.camera_id == camera_id)
+    )
+    if not tunnel:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tunnel not found")
+
+    try:
+        wireguard_manager.destroy_tunnel(camera_id)
+    except RuntimeError as exc:
+        log_event(
+            db,
+            "WIREGUARD_TUNNEL_ERROR",
+            actor_username=admin_user.username,
+            severity="high",
+            category="network",
+            details={"camera_id": camera_id, "error": str(exc)},
+        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+
+    db.delete(tunnel)
+    db.commit()
+
+    log_event(
+        db,
+        "WIREGUARD_TUNNEL_DESTROYED",
+        actor_username=admin_user.username,
+        severity="medium",
+        category="network",
+        details={"camera_id": camera_id, "interface_name": tunnel.interface_name},
+    )
+    write_audit_log(
+        db,
+        "WIREGUARD_TUNNEL_DESTROYED",
+        actor_id=admin_user.id,
+        target_id=str(camera_id),
+        description=f"WireGuard tunnel destroyed for camera {camera_id}.",
+    )
+
+    return {"status": "destroyed", "camera_id": str(camera_id)}
+
+
+@app.get("/api/v1/admin/cameras/{camera_id}/tunnel/status", response_model=TunnelStatusOut)
+def get_tunnel_status(
+    camera_id: int,
+    _admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> TunnelStatusOut:
+    """Get live status of a WireGuard tunnel."""
+    tunnel = db.scalar(
+        select(WireGuardTunnelConfig).where(WireGuardTunnelConfig.camera_id == camera_id)
+    )
+    if not tunnel:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tunnel not found")
+
+    ts = wireguard_manager.get_tunnel_status(camera_id)
+    # Update persisted stats from live status
+    tunnel.is_active = ts.is_active
+    tunnel.bytes_sent = ts.bytes_sent
+    tunnel.bytes_received = ts.bytes_received
+    tunnel.latest_handshake = ts.latest_handshake
+    db.add(tunnel)
+    db.commit()
+
+    return TunnelStatusOut(
+        camera_id=camera_id,
+        interface_name=ts.interface_name,
+        is_active=ts.is_active,
+        bytes_sent=ts.bytes_sent,
+        bytes_received=ts.bytes_received,
+        latest_handshake=ts.latest_handshake,
+        peer_endpoint=ts.peer_endpoint,
+        error_message=ts.error_message,
+    )
+
+
+@app.get("/api/v1/admin/tunnels", response_model=TunnelStatusListOut)
+def list_all_tunnels(
+    _admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> TunnelStatusListOut:
+    """List all active WireGuard tunnels."""
+    tunnel_configs = db.scalars(
+        select(WireGuardTunnelConfig).order_by(WireGuardTunnelConfig.created_at.desc())
+    ).all()
+
+    tunnels_out: list[TunnelStatusOut] = []
+    for tc in tunnel_configs:
+        status = wireguard_manager.get_tunnel_status(tc.camera_id)
+        tunnels_out.append(
+            TunnelStatusOut(
+                camera_id=tc.camera_id,
+                interface_name=tc.interface_name,
+                is_active=status.is_active,
+                bytes_sent=status.bytes_sent,
+                bytes_received=status.bytes_received,
+                latest_handshake=status.latest_handshake,
+                peer_endpoint=status.peer_endpoint,
+                error_message=status.error_message,
+            )
+        )
+
+    return TunnelStatusListOut(tunnels=tunnels_out)
+
+
+# ---------------------------------------------------------------------------
+# mDNS Camera Discovery (admin only)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/v1/admin/discovery/start")
+def start_discovery(
+    admin_user: User = Depends(require_admin),
+) -> dict[str, str]:
+    """Start the mDNS camera discovery background service."""
+    if mdns_discovery_service.is_running:
+        return {"status": "already_running"}
+    mdns_discovery_service.start()
+    return {"status": "started"}
+
+
+@app.post("/api/v1/admin/discovery/stop")
+def stop_discovery(
+    admin_user: User = Depends(require_admin),
+) -> dict[str, str]:
+    """Stop the mDNS camera discovery background service."""
+    if not mdns_discovery_service.is_running:
+        return {"status": "already_stopped"}
+    mdns_discovery_service.stop()
+    return {"status": "stopped"}
+
+
+@app.get("/api/v1/admin/discovery/status", response_model=DiscoveryStatusOut)
+def get_discovery_status(
+    _admin_user: User = Depends(require_admin),
+) -> DiscoveryStatusOut:
+    """Get the current status of the mDNS discovery service."""
+    discovered = mdns_discovery_service.get_discovered()
+    recently = [
+        {
+            "name": d.name,
+            "ip": d.ip,
+            "port": d.port,
+            "model": d.model,
+            "mjpeg_url": d.mjpeg_url,
+            "discovered_at": d.discovered_at.isoformat(),
+        }
+        for d in discovered[-20:]
+    ]
+    return DiscoveryStatusOut(
+        is_running=mdns_discovery_service.is_running,
+        discovered_count=mdns_discovery_service.discovered_count,
+        recently_discovered=recently,
+    )
+
+
+@app.post("/api/v1/admin/discovery/cameras/{camera_id}/activate", response_model=ActivateCameraResponse)
+def activate_discovered_camera(
+    camera_id: int,
+    admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> ActivateCameraResponse:
+    """Activate a camera discovered via mDNS (set is_active=True)."""
+    camera = db.get(Camera, camera_id)
+    if not camera:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
+
+    if not camera.discovered_by_mdns and not camera.source_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Camera was not discovered via mDNS",
+        )
+
+    camera.is_active = True
+    camera.discovered_by_mdns = True
+    db.add(camera)
+    db.commit()
+    db.refresh(camera)
+
+    log_event(
+        db,
+        "CAMERA_ACTIVATED",
+        actor_username=admin_user.username,
+        severity="low",
+        category="network",
+        details={"camera_id": camera.id, "camera_name": camera.name},
+        description=f"Discovered camera '{camera.name}' activated by admin.",
+    )
+
+    return ActivateCameraResponse(
+        status="activated",
+        camera_id=camera.id,
+        camera_name=camera.name,
+    )
 
