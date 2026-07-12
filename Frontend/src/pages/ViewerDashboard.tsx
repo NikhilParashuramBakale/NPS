@@ -9,6 +9,7 @@ import { SecurityBar } from "@/components/SecurityBar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { CameraTile } from "@/components/CameraTile";
 import { AdminLocalPreview } from "@/components/AdminLocalPreview";
+import { CameraUnlockOverlay } from "@/components/CameraUnlockOverlay";
 import { ViewerCameraDialog } from "@/components/ViewerCameraDialog";
 import { ViewerLocalStreamer } from "@/components/ViewerLocalStreamer";
 import {
@@ -114,6 +115,7 @@ const ViewerDashboard = () => {
   const navigate = useNavigate();
   const prevCount = useRef(myAssignments.length);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [unlockingCamera, setUnlockingCamera] = useState<number | null>(null);
   const [capabilityStatus, setCapabilityStatus] = useState<Record<number, string>>({});
   const [capabilitySessions, setCapabilitySessions] = useState<Record<number, CapabilitySession>>({});
   const [accessDeniedCameras, setAccessDeniedCameras] = useState<Record<number, boolean>>({});
@@ -198,20 +200,17 @@ const ViewerDashboard = () => {
     setExpandedId(cameraId);
     if (!requiresCapability) return;
     if (capabilitySessions[cameraId]?.validated) return;
-    try {
-      const issued = await issueCapabilityToken(cameraId);
-      const nonce = crypto.randomUUID();
-      await validateCapabilityToken({ camera_id: cameraId, capability_token: issued.capability_token, nonce });
-      setCapabilitySessions((prev) => ({
-        ...prev,
-        [cameraId]: { token: issued.capability_token, validated: true },
-      }));
-      setCapabilityStatus((prev) => ({ ...prev, [cameraId]: "Protected capability validated" }));
-      toast.success("Capability token validated", { description: "Nonce accepted for this camera session." });
-    } catch {
-      setCapabilityStatus((prev) => ({ ...prev, [cameraId]: "Capability validation failed" }));
-      toast.error("Capability validation failed");
-    }
+    // Show the unlock overlay instead of doing it silently
+    setUnlockingCamera(cameraId);
+  };
+
+  const handleUnlockComplete = (cameraId: number, token: string) => {
+    setCapabilitySessions((prev) => ({
+      ...prev,
+      [cameraId]: { token, validated: true },
+    }));
+    setCapabilityStatus((prev) => ({ ...prev, [cameraId]: "Protected capability validated" }));
+    setUnlockingCamera(null);
   };
 
   return (
@@ -421,6 +420,14 @@ const ViewerDashboard = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      {unlockingCamera !== null && (
+        <CameraUnlockOverlay
+          cameraId={unlockingCamera}
+          onComplete={handleUnlockComplete}
+          onClose={() => setUnlockingCamera(null)}
+        />
+      )}
     </div>
   );
 };

@@ -23,6 +23,7 @@ const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState<"assignments" | "users" | "viewer-cameras">("assignments");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [pendingRequests, setPendingRequests] = useState<AccessRequest[]>([]);
+  const [approveDurations, setApproveDurations] = useState<Record<number, number>>({});
 
   const refreshRequests = () => fetchPendingRequests().then(setPendingRequests).catch(() => setPendingRequests([]));
 
@@ -195,20 +196,37 @@ const AdminDashboard = () => {
                 {pendingRequests.length > 0 && (
                   <div className="mb-3 space-y-2 rounded-md border border-warning/30 bg-warning/5 p-3">
                     <div className="text-xs font-semibold text-warning">Pending access requests</div>
-                    {pendingRequests.map((request) => (
+                    {pendingRequests.map((request) => {
+                      const dur = approveDurations[request.id] ?? 1;
+                      return (
                       <div key={request.id} className="rounded-md border border-border bg-card p-2">
                         <div className="text-sm font-medium">{request.requester_name}{" -> "}{request.camera_name}</div>
                         <p className="mt-1 text-xs text-muted-foreground">{request.reason}</p>
-                        <div className="mt-2 flex gap-2">
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <div className="flex items-center gap-1 rounded-md border border-border bg-secondary/30 px-2 py-1">
+                            <select
+                              className="bg-transparent text-xs font-medium outline-none cursor-pointer"
+                              value={dur}
+                              onChange={(e) => setApproveDurations(prev => ({ ...prev, [request.id]: Number(e.target.value) }))}
+                            >
+                              <option value={1}>1 hour</option>
+                              <option value={2}>2 hours</option>
+                              <option value={6}>6 hours</option>
+                              <option value={12}>12 hours</option>
+                              <option value={24}>24 hours</option>
+                              <option value={48}>48 hours</option>
+                              <option value={72}>72 hours</option>
+                            </select>
+                          </div>
                           <Button
                             size="sm"
                             onClick={async () => {
-                              await approveAccessRequest(request.id, 24);
-                              toast.success("Request approved", { description: "Temporary access granted for 24 hours." });
+                              await approveAccessRequest(request.id, dur);
+                              toast.success("Request approved", { description: `Temporary access granted for ${dur} hour${dur > 1 ? "s" : ""}.` });
                               await Promise.all([refreshRequests(), refreshDashboard()]);
                             }}
                           >
-                            Approve 24h
+                            Approve
                           </Button>
                           <Button
                             size="sm"
@@ -223,7 +241,8 @@ const AdminDashboard = () => {
                           </Button>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
                 {assignments.length === 0 && (
