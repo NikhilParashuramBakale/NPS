@@ -528,7 +528,7 @@ def get_requestable_cameras(
 ) -> list[CameraOut]:
     if not is_limited_role(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Limited-access role required")
-    cameras = db.scalars(select(Camera).where(Camera.owner_id.is_(None), Camera.is_active.is_(True)).order_by(Camera.id)).all()
+    cameras = db.scalars(select(Camera).where(Camera.is_active.is_(True)).order_by(Camera.id)).all()
     return [_as_camera_out(cam, current_user.id, current_user.role) for cam in cameras]
 
 
@@ -1245,8 +1245,10 @@ def create_access_request(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Limited-access role required")
 
     camera = db.get(Camera, payload.camera_id)
-    if not camera or not camera.is_active or camera.owner_id is not None:
+    if not camera or not camera.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid camera")
+    if camera.owner_id == current_user.id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot request access to your own camera")
         
     req = AccessRequest(
         requester_id=current_user.id,

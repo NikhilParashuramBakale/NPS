@@ -51,6 +51,12 @@ const AdminDashboard = () => {
   };
 
   const adminCameras = cameras.filter((c) => c.owner_id === null);
+  const configuredCameras = cameras.filter((c) => c.source_type !== "unconfigured" && c.is_active);
+  const ownerLabel = (camera: typeof cameras[number]) => {
+    if (camera.owner_id === null) return "Admin";
+    const owner = viewers.find((v) => v.id === camera.owner_id);
+    return owner?.username ?? "Unknown";
+  };
 
   const liveFeedGridClass = (count: number) => {
     if (count <= 1) return "grid grid-cols-1 gap-6 max-w-4xl w-full";
@@ -118,6 +124,7 @@ const AdminDashboard = () => {
               >
                 <div className="flex items-center justify-between">
                   <span className="font-medium text-foreground truncate">{c.name}</span>
+                  <span className="text-[10px] text-muted-foreground ml-1 shrink-0">{ownerLabel(c)}</span>
                   {c.status === "online" && (
                     <span className="flex items-center gap-1.5 text-[11px] font-medium text-success bg-success/10 px-2 py-0.5 rounded-full">
                       <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
@@ -145,8 +152,8 @@ const AdminDashboard = () => {
             <Button asChild size="sm" variant="outline"><Link to="/audit-logs"><ClipboardCheck className="h-4 w-4 mr-1" />Audit Logs</Link></Button>
             <Button asChild size="sm" variant="outline"><Link to="/security-events">Security Events</Link></Button>
           </div>
-          <div className={`${liveFeedGridClass(adminCameras.length)} ${adminCameras.length === 1 ? "mx-auto" : ""}`}>
-            {adminCameras.map((c) => {
+          <div className={`${liveFeedGridClass(configuredCameras.length)} ${configuredCameras.length === 1 ? "mx-auto" : ""}`}>
+            {configuredCameras.map((c) => {
               const preview = c.source_type === "ip_mjpeg" && c.source_url
                 ? <img src={getCameraStreamUrl(c.id, c.source_url)} alt={`${c.name} feed`} className="h-full w-full object-cover" />
                 : c.source_type === "admin_local" || c.source_type === "viewer_local"
@@ -155,7 +162,7 @@ const AdminDashboard = () => {
               return (
                 <CameraTile
                   key={c.id}
-                  name={c.name}
+                  name={`${c.name} (${ownerLabel(c)})`}
                   status={c.status}
                   variant="card"
                   preview={preview}
